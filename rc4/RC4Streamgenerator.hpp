@@ -13,44 +13,40 @@
 class RC4Streamgenerator
 {
 public:
-	const static unsigned int BLOCKSIZE = 104857600;
-
-	RC4Streamgenerator();
+	RC4Streamgenerator(const unsigned int blocksize, const Data &seed);
 
 	const Data getRandomBytes();
 	const void getRandomBytes(Data &data);
 
-	void reseed(boost::function<void(unsigned int)> callback = DummyCallback());
+	void reseed(const Data &seeddata);
 private:
+	const unsigned int _blocksize;
 	Data _zeroes;
 	RC4_KEY _key;
 };
 
-inline RC4Streamgenerator::RC4Streamgenerator() :
-	_zeroes(BLOCKSIZE), _key()
+inline RC4Streamgenerator::RC4Streamgenerator(const unsigned int blocksize, const Data &seed) :
+	_blocksize(blocksize),_zeroes(_blocksize), _key()
 {
-	memset(_zeroes.get(), 0, BLOCKSIZE);
-	reseed();
+	memset(_zeroes.get(), 0, _blocksize);
+	reseed(seed);
 }
 
-inline void RC4Streamgenerator::reseed(
-		boost::function<void(unsigned int)> callback)
+inline void RC4Streamgenerator::reseed(const Data &seeddata)
 {
-	const unsigned int SEEDSIZE = 256;
-	Data seeddata = KernelEntropy::getEntropy(SEEDSIZE, callback);
-	RC4_set_key(&_key, SEEDSIZE, seeddata.get());
+	RC4_set_key(&_key, seeddata.size(), seeddata.get());
 }
 
 inline const Data RC4Streamgenerator::getRandomBytes()
 {
-	Data result(BLOCKSIZE);
+	Data result(_blocksize);
 	getRandomBytes(result);
 	return result;
 }
 
 inline const void RC4Streamgenerator::getRandomBytes(Data &data)
 {
-	RC4(&_key, BLOCKSIZE, _zeroes.get(), data.get());
+	RC4(&_key, _blocksize, _zeroes.get(), data.get());
 }
 
 #endif
