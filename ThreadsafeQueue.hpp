@@ -16,6 +16,8 @@ public:
 	const T pop();
 
 	bool empty() const;
+
+	unsigned int size() const;
 private:
 	std::queue<T> _queue;
 	boost::mutex _mutex;
@@ -49,6 +51,12 @@ template<class T>
 inline bool ThreadsafeQueue<T>::empty() const
 {
 	return _queue.empty();
+}
+
+template<class T>
+inline unsigned int ThreadsafeQueue<T>::size() const
+{
+	return _queue.size();
 }
 
 #endif /* __THREADSAFEQUEUE_HPP__ */

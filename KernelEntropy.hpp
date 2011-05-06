@@ -7,6 +7,9 @@
 //TODO Exceptions instead of cerr
 #include <iostream>
 
+#include <boost/function.hpp>
+
+#include "Data.hpp"
 #include "DummyCallback.hpp"
 
 class KernelEntropy

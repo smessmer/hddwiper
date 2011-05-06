@@ -14,6 +14,8 @@ public:
 
 	void push(const Data &data);
 	const Data pop();
+
+	unsigned int size() const;
 private:
 	ThreadsafeQueue<Data> _queue;
 	Semaphore _empty;
@@ -45,6 +47,11 @@ inline const Data DataAssembly::pop()
 	_empty.release();
 
 	return result;
+}
+
+inline unsigned int DataAssembly::size() const
+{
+	return _queue.size();
 }
 
 #endif /* __DATAASSEMBLY_HPP__ */
