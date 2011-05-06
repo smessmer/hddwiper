@@ -6,7 +6,6 @@ void RC4StreamProducer::ProducerThread::operator()(
 	try
 	{
 		_entropyproducer=std::tr1::shared_ptr<KernelEntropyProducer>(new KernelEntropyProducer(SEEDCOUNT,SEEDSIZE));
-		reseed();
 
 		int count_until_reseed=0;
 		while (true)
@@ -18,7 +17,6 @@ void RC4StreamProducer::ProducerThread::operator()(
 				count_until_reseed=1000;
 			}
 			--count_until_reseed;
-
 			target->push(_generator.getRandomBytes());
 			boost::this_thread::interruption_point();
 		}

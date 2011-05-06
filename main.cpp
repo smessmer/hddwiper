@@ -22,7 +22,7 @@ int main(int argc, char *argv[])
 			 << "Randombuffer: " << wiper.getBufferSize() << " "
 			 << "Seeding: "<<wiper.getSeedingStatus() << "               "
 			 << flush;
-		sleep(1);
+		boost::this_thread::sleep(boost::posix_time::seconds(1));
 	}
 
 	return 0;
