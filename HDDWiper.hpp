@@ -29,6 +29,7 @@ private:
 	{
 	public:
 		WipingThread(HDDWiper &wiper);
+		~WipingThread();
 
 		void operator()();
 
@@ -41,7 +42,7 @@ private:
 		WipingThread &operator=(const WipingThread &rhs);
 
 		HDDWiper &_wiper;
-		RC4StreamProducer _generator;
+		std::tr1::shared_ptr<RC4StreamProducer> _generator;
 		Threadsafe<double> _currentspeed;
 	};
 
@@ -52,7 +53,7 @@ private:
 };
 
 inline HDDWiper::WipingThread::WipingThread(HDDWiper &wiper)
-	:_wiper(wiper),_generator(HDDWiper::BUFFERSIZE,HDDWiper::BLOCKSIZE),_currentspeed(0)
+	:_wiper(wiper),_generator(),_currentspeed(0)
 {
 }
 
@@ -78,12 +79,18 @@ inline unsigned long long int HDDWiper::getBytesWritten() const
 
 inline unsigned int HDDWiper::WipingThread::getBufferSize() const
 {
-	return _generator.available_count();
+	if(_generator==NULL)
+		return 0;
+
+	return _generator->available_count();
 }
 
 inline unsigned int HDDWiper::WipingThread::getSeedBufferSize() const
 {
-	return _generator.available_seed();
+	if(_generator==NULL)
+		return 0;
+
+	return _generator->available_seed();
 }
 
 inline unsigned int HDDWiper::getBufferSize() const
@@ -103,7 +110,10 @@ inline unsigned int HDDWiper::getSeedingStatus() const
 
 inline unsigned int HDDWiper::WipingThread::getSeedingStatus() const
 {
-	return _generator.seeding_status();
+	if(_generator==NULL)
+		return 0;
+
+	return _generator->seeding_status();
 }
 
 #endif /* HDDWIPER_HPP_ */

@@ -5,6 +5,9 @@ void RC4StreamProducer::ProducerThread::operator()(
 {
 	try
 	{
+		_entropyproducer=new KernelEntropyProducer(SEEDCOUNT,SEEDSIZE);
+		reseed();
+
 		int count_until_reseed=0;
 		while (true)
 		{

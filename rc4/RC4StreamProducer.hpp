@@ -37,7 +37,7 @@ private:
 		static const unsigned int SEEDSIZE=256;
 		static const unsigned int SEEDCOUNT=2;
 
-		KernelEntropyProducer _entropyproducer;
+		std::tr1::shared_ptr<KernelEntropyProducer> _entropyproducer;
 
 		RC4Streamgenerator _generator;
 	};
@@ -54,13 +54,19 @@ inline RC4StreamProducer::RC4StreamProducer(
 
 inline RC4StreamProducer::ProducerThread::ProducerThread(
 		const unsigned int blocksize) :
-	_entropyproducer(SEEDCOUNT,SEEDSIZE),_generator(blocksize,_entropyproducer.get())
+	_entropyproducer(),_generator(blocksize)
 {
 }
 
 inline void RC4StreamProducer::ProducerThread::reseed()
 {
-	_generator.reseed(_entropyproducer.get());
+	if(_entropyproducer==NULL)
+	{
+		std::cerr << "Entropyproducer not available"<<std::endl;
+		return;
+	}
+
+	_generator.reseed(_entropyproducer->get());
 }
 
 inline unsigned int RC4StreamProducer::available_seed() const
@@ -75,12 +81,18 @@ inline unsigned int RC4StreamProducer::seeding_status() const
 
 inline unsigned int RC4StreamProducer::ProducerThread::available_seed() const
 {
-	return _entropyproducer.available_count();
+	if(_entropyproducer==NULL)
+		return 0;
+
+	return _entropyproducer->available_count();
 }
 
 inline unsigned int RC4StreamProducer::ProducerThread::seeding_status() const
 {
-	return _entropyproducer.seeding_status();
+	if(_entropyproducer==NULL)
+		return 0;
+
+	return _entropyproducer->seeding_status();
 }
 
 #endif /* RC4STREAMPRODUCER_HPP_ */

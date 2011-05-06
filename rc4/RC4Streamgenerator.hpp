@@ -14,6 +14,7 @@ class RC4Streamgenerator
 {
 public:
 	RC4Streamgenerator(const unsigned int blocksize, const Data &seed);
+	RC4Streamgenerator(const unsigned int blocksize);
 
 	const Data getRandomBytes();
 	const void getRandomBytes(Data &data);
@@ -30,6 +31,12 @@ inline RC4Streamgenerator::RC4Streamgenerator(const unsigned int blocksize, cons
 {
 	memset(_zeroes.get(), 0, _blocksize);
 	reseed(seed);
+}
+
+inline RC4Streamgenerator::RC4Streamgenerator(const unsigned int blocksize) :
+	_blocksize(blocksize),_zeroes(_blocksize), _key()
+{
+	memset(_zeroes.get(), 0, _blocksize);
 }
 
 inline void RC4Streamgenerator::reseed(const Data &seeddata)
