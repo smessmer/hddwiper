@@ -1,17 +1,8 @@
 #include <iostream>
 
-#include "util/Profiler.hpp"
-#include "rc4/RC4StreamProducer.hpp"
-#include "output/OutputFile.hpp"
+#include "HDDWiper.hpp"
 
 using namespace std;
-
-void showProgress(unsigned int i)
-{
-	cout << "\rSeeding from /dev/random: " << i << "/256" << flush;
-}
-
-const unsigned int BLOCKSIZE=100*1024*1024;
 
 int main(int argc, char *argv[])
 {
@@ -21,24 +12,17 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	RC4StreamProducer generator(5,BLOCKSIZE);
-	Outputfile output(argv[1]);
+	HDDWiper wiper(argv[1]);
 
-	unsigned int blocks = 0;
 	while (true)
 	{
-		Profiler time;
-		Data random=generator.get();
-		output.write(random);
-		++blocks;
-		const double mb_per_sec =
-				static_cast<double> (BLOCKSIZE) / 1024
-						/ 1024 / time.getSecondsPassed();
-		cout << "\rWritten: " << blocks << " blocks ("
-				<< static_cast<double> (blocks)
-						* (static_cast<double> (BLOCKSIZE)
-								/ 1024 / 1024 / 1024) << " GB) " << "Speed: "
-				<< mb_per_sec << "MB/s                    " << flush;
+		cout << "\rWritten: " << static_cast<double>(wiper.getBytesWritten())/1024/1024/1024 << " GB "
+			 << "Speed: " << wiper.getCurrentSpeed() << "MB/s "
+			 << "Seedbuffer: " << wiper.getSeedBufferSize() << " "
+			 << "Randombuffer: " << wiper.getBufferSize()
+			 << "Seeding: "<<wiper.getSeedingStatus()
+			 << flush;
+		sleep(1);
 	}
 
 	return 0;

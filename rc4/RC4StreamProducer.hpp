@@ -16,6 +16,10 @@ public:
 	RC4StreamProducer(const unsigned int buffersize,
 			const unsigned int blocksize);
 
+	unsigned int available_seed() const;
+
+	unsigned int seeding_status() const;
+
 private:
 
 	class ProducerThread
@@ -23,33 +27,60 @@ private:
 	public:
 		ProducerThread(const unsigned int blocksize);
 		void operator()(Assembly<Data> *target);
+
+		unsigned int available_seed() const;
+
+		unsigned int seeding_status() const;
 	private:
 		void reseed();
 
 		static const unsigned int SEEDSIZE=256;
 		static const unsigned int SEEDCOUNT=2;
 
-		std::tr1::shared_ptr<KernelEntropyProducer> _entropyproducer;
+		KernelEntropyProducer _entropyproducer;
 
 		RC4Streamgenerator _generator;
 	};
+
+	ProducerThread _producerthread;
 };
 
 inline RC4StreamProducer::RC4StreamProducer(
 		const unsigned int buffersize, const unsigned int blocksize) :
-	Producer<Data>(buffersize,ProducerThread(blocksize))
+	Producer<Data>(buffersize),_producerthread(blocksize)
 {
+	run(boost::ref(_producerthread));
 }
 
 inline RC4StreamProducer::ProducerThread::ProducerThread(
 		const unsigned int blocksize) :
-	_entropyproducer(new KernelEntropyProducer(SEEDCOUNT,SEEDSIZE)),_generator(blocksize,_entropyproducer->get())
+	_entropyproducer(SEEDCOUNT,SEEDSIZE),_generator(blocksize,_entropyproducer.get())
 {
 }
 
 inline void RC4StreamProducer::ProducerThread::reseed()
 {
-	_generator.reseed(_entropyproducer->get());
+	_generator.reseed(_entropyproducer.get());
+}
+
+inline unsigned int RC4StreamProducer::available_seed() const
+{
+	return _producerthread.available_seed();
+}
+
+inline unsigned int RC4StreamProducer::seeding_status() const
+{
+	return _producerthread.seeding_status();
+}
+
+inline unsigned int RC4StreamProducer::ProducerThread::available_seed() const
+{
+	return _entropyproducer.available_count();
+}
+
+inline unsigned int RC4StreamProducer::ProducerThread::seeding_status() const
+{
+	return _entropyproducer.seeding_status();
 }
 
 #endif /* RC4STREAMPRODUCER_HPP_ */

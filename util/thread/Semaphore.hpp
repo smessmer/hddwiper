@@ -27,7 +27,6 @@ inline Semaphore::Semaphore(int value)
 inline void Semaphore::wait()
 {
 	boost::unique_lock<boost::mutex> lock(_mutex);
-	lock.lock();
 
 	--_value;
 
