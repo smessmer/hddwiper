@@ -3,78 +3,53 @@
 #ifndef KERNELENTROPYPRODUCER_HPP_
 #define KERNELENTROPYPRODUCER_HPP_
 
-#include "util/DataAssembly.hpp"
+#include "producer/Producer.hpp"
 #include "KernelEntropy.hpp"
+#include "util/data/Data.hpp"
 
 #include <boost/thread.hpp>
 
-class KernelEntropyProducer
+class KernelEntropyProducer: public Producer<Data>
 {
 public:
 	KernelEntropyProducer(const unsigned int buffersize,
 			const unsigned int blocksize);
 
-	~KernelEntropyProducer();
-
-	const Data get();
-
-	unsigned int available_count() const;
-
 private:
-	DataAssembly _entropy;
-
-	boost::thread _producer;
 
 	class ProducerThread
 	{
 	public:
-		ProducerThread(DataAssembly &target, const unsigned int blocksize);
-		void operator()();
+		ProducerThread(const unsigned int blocksize);
+		void operator()(Assembly<Data> *target);
 	private:
 		const unsigned int _blocksize;
-		DataAssembly &_target;
 	};
 };
 
 inline KernelEntropyProducer::KernelEntropyProducer(
 		const unsigned int buffersize, const unsigned int blocksize) :
-	_entropy(buffersize), _producer(ProducerThread(_entropy, blocksize))
+	Producer<Data>(buffersize,ProducerThread(blocksize))
 {
 }
 
-inline KernelEntropyProducer::~KernelEntropyProducer()
-{
-	_producer.interrupt();
-	_producer.join();
-}
-
-inline const Data KernelEntropyProducer::get()
-{
-	return _entropy.pop();
-}
-
-inline unsigned int KernelEntropyProducer::available_count() const
-{
-	return _entropy.size();
-}
-
-inline KernelEntropyProducer::ProducerThread::ProducerThread(DataAssembly &target,
+inline KernelEntropyProducer::ProducerThread::ProducerThread(
 		const unsigned int blocksize) :
-	_blocksize(blocksize), _target(target)
+	_blocksize(blocksize)
 {
 }
 
-inline void KernelEntropyProducer::ProducerThread::operator()()
+inline void KernelEntropyProducer::ProducerThread::operator()(
+		Assembly<Data> *target)
 {
 	try
 	{
 		while (true)
 		{
-			_target.push(KernelEntropy::getEntropy(_blocksize));
+			target->push(KernelEntropy::getEntropy(_blocksize));
 			boost::this_thread::interruption_point();
 		}
-	}
-	catch(boost::thread_interrupted &interruptedexception)
+	} catch (boost::thread_interrupted &interruptedexception)
 	{
 	}
 }

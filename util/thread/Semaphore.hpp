@@ -11,6 +11,9 @@ public:
 	void wait();
 	void release();
 private:
+	Semaphore(const Semaphore &rhs);
+	Semaphore &operator=(const Semaphore &rhs);
+
 	boost::mutex _mutex;
 	boost::condition_variable _wait;
 	int _value;
