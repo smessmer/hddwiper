@@ -5,7 +5,7 @@ void RC4StreamProducer::ProducerThread::operator()(
 {
 	try
 	{
-		_entropyproducer=new KernelEntropyProducer(SEEDCOUNT,SEEDSIZE);
+		_entropyproducer=std::tr1::shared_ptr<KernelEntropyProducer>(new KernelEntropyProducer(SEEDCOUNT,SEEDSIZE));
 		reseed();
 
 		int count_until_reseed=0;

@@ -29,7 +29,6 @@ private:
 	{
 	public:
 		WipingThread(HDDWiper &wiper);
-		~WipingThread();
 
 		void operator()();
 
