@@ -6,7 +6,11 @@
 class DummyCallback
 {
 public:
-  void operator()(unsigned int) {}
+	void operator()(unsigned int);
 };
+
+inline void DummyCallback::operator()(unsigned int)
+{
+}
 
 #endif
