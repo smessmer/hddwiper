@@ -6,9 +6,9 @@
 #include <openssl/rc4.h>
 #include <boost/function.hpp>
 
-#include "Data.hpp"
-#include "DummyCallback.hpp"
-#include "KernelEntropy.hpp"
+#include "util/data/Data.hpp"
+#include "util/DummyCallback.hpp"
+#include "kernelentropy/KernelEntropy.hpp"
 
 class RC4Streamgenerator
 {

@@ -9,8 +9,8 @@
 
 #include <boost/function.hpp>
 
-#include "Data.hpp"
-#include "DummyCallback.hpp"
+#include "util/data/Data.hpp"
+#include "util/DummyCallback.hpp"
 
 class KernelEntropy
 {

@@ -6,7 +6,7 @@
 #include <string>
 #include <cstdio>
 
-#include "Data.hpp"
+#include "util/data/Data.hpp"
 
 //TODO Exceptions instead of cerr
 #include <iostream>

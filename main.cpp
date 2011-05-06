@@ -1,8 +1,8 @@
 #include <iostream>
 
-#include "Profiler.hpp"
-#include "RC4Streamgenerator.hpp"
-#include "Outputfile.hpp"
+#include "util/Profiler.hpp"
+#include "rc4/RC4Streamgenerator.hpp"
+#include "output/OutputFile.hpp"
 
 using namespace std;
 

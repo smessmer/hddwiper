@@ -3,9 +3,9 @@
 #ifndef __DATAASSEMBLY_HPP__
 #define __DATAASSEMBLY_HPP__
 
-#include "ThreadsafeQueue.hpp"
-#include "Data.hpp"
-#include "Semaphore.hpp"
+#include "util/thread/ThreadsafeQueue.hpp"
+#include "util/data/Data.hpp"
+#include "util/thread/Semaphore.hpp"
 
 class DataAssembly
 {

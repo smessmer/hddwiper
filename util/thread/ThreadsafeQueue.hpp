@@ -20,7 +20,7 @@ public:
 	unsigned int size() const;
 private:
 	std::queue<T> _queue;
-	boost::mutex _mutex;
+	mutable boost::mutex _mutex;
 };
 
 template<class T>
@@ -50,12 +50,16 @@ inline const T ThreadsafeQueue<T>::pop()
 template<class T>
 inline bool ThreadsafeQueue<T>::empty() const
 {
+	boost::lock_guard<boost::mutex> lock(_mutex);
+
 	return _queue.empty();
 }
 
 template<class T>
 inline unsigned int ThreadsafeQueue<T>::size() const
 {
+	boost::lock_guard<boost::mutex> lock(_mutex);
+
 	return _queue.size();
 }
 

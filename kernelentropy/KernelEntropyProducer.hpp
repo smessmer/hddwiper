@@ -3,7 +3,7 @@
 #ifndef KERNELENTROPYPRODUCER_HPP_
 #define KERNELENTROPYPRODUCER_HPP_
 
-#include "DataAssembly.hpp"
+#include "util/DataAssembly.hpp"
 #include "KernelEntropy.hpp"
 
 #include <boost/thread.hpp>
