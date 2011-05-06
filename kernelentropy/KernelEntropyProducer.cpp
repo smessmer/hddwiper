@@ -7,6 +7,7 @@ void KernelEntropyProducer::ProducerThread::operator()(
 	{
 		while (true)
 		{
+			_seeding_status=0;
 			target->push(KernelEntropy::getEntropy(_blocksize,boost::bind(&KernelEntropyProducer::ProducerThread::inc_seedingstatus,this)));
 			boost::this_thread::interruption_point();
 		}
