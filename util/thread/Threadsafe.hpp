@@ -28,6 +28,9 @@ public:
 	const Threadsafe<T> operator++(int);
 	Threadsafe<T> &operator--();
 	const Threadsafe<T> operator--(int);
+
+	Threadsafe<T> &operator+=(const T &rhs);
+	//TODO more functions
 private:
 	T _object;
 	mutable boost::mutex _mutex;
@@ -73,7 +76,15 @@ inline Threadsafe<T>::operator const T() const
 }
 
 template<class T>
-Threadsafe<T> &Threadsafe<T>::operator++()
+inline Threadsafe<T> &Threadsafe<T>::operator+=(const T &rhs)
+{
+	boost::lock_guard<boost::mutex> lock(_mutex);
+	_object+=rhs;
+	return *this;
+}
+
+template<class T>
+inline Threadsafe<T> &Threadsafe<T>::operator++()
 {
 	boost::lock_guard<boost::mutex> lock(_mutex);
 	++_object;
@@ -81,7 +92,7 @@ Threadsafe<T> &Threadsafe<T>::operator++()
 }
 
 template<class T>
-const Threadsafe<T> Threadsafe<T>::operator++(int)
+inline const Threadsafe<T> Threadsafe<T>::operator++(int)
 {
 	Threadsafe<T> tmp(*this);
 	++*this;
@@ -89,7 +100,7 @@ const Threadsafe<T> Threadsafe<T>::operator++(int)
 }
 
 template<class T>
-Threadsafe<T> &Threadsafe<T>::operator--()
+inline Threadsafe<T> &Threadsafe<T>::operator--()
 {
 	boost::lock_guard<boost::mutex> lock(_mutex);
 	--_object;
@@ -97,7 +108,7 @@ Threadsafe<T> &Threadsafe<T>::operator--()
 }
 
 template<class T>
-const Threadsafe<T> Threadsafe<T>::operator--(int)
+inline const Threadsafe<T> Threadsafe<T>::operator--(int)
 {
 	Threadsafe<T> tmp(*this);
 	--*this;
