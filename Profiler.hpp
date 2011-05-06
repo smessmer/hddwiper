@@ -3,6 +3,8 @@
 #ifndef __PROFILER_HPP__
 #define __PROFILER_HPP__
 
+#include <sys/time.h>
+
 class Profiler
 {
 public:

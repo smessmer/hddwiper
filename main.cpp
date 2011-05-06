@@ -1,29 +1,10 @@
 #include <iostream>
-#include <cstdio>
-#include <cstring>
-#include <sys/time.h>
 
 #include "Profiler.hpp"
 #include "RC4Streamgenerator.hpp"
+#include "Outputfile.hpp"
 
 using namespace std;
-
-FILE *getoutput(const std::string &filename)
-{
-	FILE *output = fopen(filename.c_str(), "wb");
-	if (output == NULL)
-		cerr << "Error opening output: " << filename << endl;
-	return output;
-}
-
-void write(const Data &data, FILE *file)
-{
-	fwrite(data.get(), data.size(), 1, file);
-	if (ferror(file))
-	{
-		cerr << "Error writing to output or finished writing" << endl;
-	}
-}
 
 void showProgress(unsigned int i)
 {
@@ -39,8 +20,7 @@ int main(int argc, char *argv[])
 	}
 
 	RC4Streamgenerator generator;
-
-	FILE *output = getoutput(argv[1]);
+	Outputfile output(argv[1]);
 
 	unsigned int blocks = 0;
 	Data random(RC4Streamgenerator::BLOCKSIZE);
@@ -48,7 +28,7 @@ int main(int argc, char *argv[])
 	{
 		Profiler time;
 		generator.getRandomBytes(random);
-		write(random, output);
+		output.write(random);
 		++blocks;
 		const double mb_per_sec =
 				static_cast<double> (RC4Streamgenerator::BLOCKSIZE) / 1024
