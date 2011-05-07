@@ -35,7 +35,7 @@ private:
 		void reseed();
 
 		static const unsigned int SEEDSIZE=256;
-		static const unsigned int SEEDCOUNT=2;
+		static const unsigned int SEEDCOUNT=200;
 
 		std::tr1::shared_ptr<KernelEntropyProducer> _entropyproducer;
 
