@@ -3,6 +3,8 @@
 #ifndef __DATABASE_HPP__
 #define __DATABASE_HPP__
 
+#include <cstdlib>
+
 class DataBase
 {
 public:
@@ -22,14 +24,22 @@ private:
 	unsigned int _size;
 };
 
+#include <stdexcept>
 inline DataBase::DataBase(const unsigned int size) :
-	_data(new unsigned char[size]), _size(size)
+	_data(reinterpret_cast<unsigned char*>(malloc(size*sizeof(unsigned char)))), _size(size)
 {
+	if(_data==NULL)
+		//TODO Correct exception
+		throw std::logic_error("Couldn't allocate memory");
 }
 
 inline DataBase::~DataBase()
 {
-	delete[] _data;
+	if(_data!=NULL)
+	{
+		free(_data);
+		_data=NULL;
+	}
 }
 
 inline unsigned char *DataBase::get()
