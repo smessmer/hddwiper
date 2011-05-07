@@ -18,8 +18,8 @@ int main(int argc, char *argv[])
 	{
 		cout.precision(2);
 		cout << fixed ;
-		cout << "\rWritten: " <<  setw(5) << static_cast<double>(wiper.getBytesWritten())/1024/1024/1024 << " GB"
-			 << "\tSpeed: " << setw(5) << wiper.getCurrentSpeed() << " MB/s"
+		cout << "\rWritten: " <<  setw(7) << static_cast<double>(wiper.getBytesWritten())/1024/1024/1024 << " GB"
+			 << "\tSpeed: " << setw(7) << wiper.getCurrentSpeed() << " MB/s"
 			 << "\tSeedbuffer: " << setw(3) << wiper.getSeedBufferSize()
 			 << "\tRandombuffer: " << setw(3) << wiper.getBufferSize()
 			 << "\tSeeding: "<< setw(3) << wiper.getSeedingStatus()

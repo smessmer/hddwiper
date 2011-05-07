@@ -21,6 +21,8 @@ public:
 	void write(const Data data);
 
 	unsigned long long int getBytesWritten() const;
+
+	void skip(unsigned long long int bytes);
 private:
 	Outputfile(const Outputfile &rhs);
 	Outputfile &operator=(const Outputfile &rhs);
@@ -34,6 +36,11 @@ inline Outputfile::Outputfile(const std::string &filename)
 {
 	if(_file==NULL)
 		std::cerr << "Error opening output file" <<std::endl;
+}
+
+inline void Outputfile::skip(unsigned long long int bytes)
+{
+	fseeko64(_file,bytes,SEEK_CUR);
 }
 
 inline void Outputfile::write(const Data data)

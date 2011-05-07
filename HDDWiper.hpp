@@ -64,6 +64,7 @@ inline double HDDWiper::WipingThread::getCurrentSpeed() const
 inline HDDWiper::HDDWiper(const std::string &filename)
 	:_output(filename),_wipingthread(*this),_wipingthread_thread(boost::ref(_wipingthread))
 {
+//	_output.skip(700L*1024*1024*1024);
 }
 
 inline double HDDWiper::getCurrentSpeed() const
