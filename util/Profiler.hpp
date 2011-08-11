@@ -5,11 +5,27 @@
 
 #include <sys/time.h>
 
+/**
+ * An instance of this class can measure time intervals.
+ * This is extremely useful for profiling applications.
+ *
+ * @author Sebastian Meßmer
+ */
 class Profiler
 {
 public:
+	/**
+	 * Create a new profiler and start the clock
+	 */
 	Profiler();
 
+	/**
+	 * Return the number of seconds since the creation
+	 * of the profiler object.
+	 * This return value is double and has a resolution of microseconds
+	 *
+	 * @return The number of seconds since the creation of the profiler object.
+	 */
 	double getSecondsPassed() const;
 
 private:
@@ -18,22 +34,6 @@ private:
 	unsigned long long int _start;
 };
 
-inline Profiler::Profiler() :
-	_start(currentTime())
-{
-}
-
-inline double Profiler::getSecondsPassed() const
-{
-	return static_cast<double> (currentTime() - _start) / 1000000;
-}
-
-inline unsigned long long int Profiler::currentTime() const
-{
-	struct timeval tm;
-	gettimeofday(&tm, 0);
-	return static_cast<unsigned long long int> (tm.tv_sec) * 1000000
-			+ tm.tv_usec;
-}
+#include "impl/Profiler.impl.hpp"
 
 #endif
