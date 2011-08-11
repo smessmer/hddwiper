@@ -3,14 +3,37 @@
 
 #include <boost/thread/condition_variable.hpp>
 
+/**
+ * Implements a semaphore for thread synchronization.
+ * A semaphore has an initial capacity.
+ * Each call to wait() uses one unit of this capacity, if there is capacity available.
+ * If there is no capacity available, wait() waits, until capacity gets available.
+ * To the call to wait() there has to follow a call to release(), which releases one unit
+ * of capacity (so the next thread can enter the semaphore).
+ *
+ * @author Sebastian Meßmer
+ */
 class Semaphore
 {
 public:
-	Semaphore(int value);
+	/**
+	 * Create a new semaphore
+	 *
+	 * @param capacity The initial capacity of the semaphore
+	 */
+	Semaphore(int capacity);
 
+	/**
+	 * Use one capacity unit. If none is available, wait for it.
+	 */
 	void wait();
+
+	/**
+	 * Free one used capacity unit.
+	 */
 	void release();
 private:
+	//Forbid copying
 	Semaphore(const Semaphore &rhs);
 	Semaphore &operator=(const Semaphore &rhs);
 
@@ -19,29 +42,6 @@ private:
 	int _value;
 };
 
-inline Semaphore::Semaphore(int value)
-	:_mutex(),_wait(),_value(value)
-{
-}
-
-inline void Semaphore::wait()
-{
-	boost::unique_lock<boost::mutex> lock(_mutex);
-
-	--_value;
-
-	if(_value<0)
-		_wait.wait(lock);
-}
-
-inline void Semaphore::release()
-{
-	boost::lock_guard<boost::mutex> lock(_mutex);
-
-	++_value;
-
-	if(_value<=0)
-		_wait.notify_one();
-}
+#include "impl/Semaphore.impl.hpp"
 
 #endif /* SEMAPHORE_HPP_ */

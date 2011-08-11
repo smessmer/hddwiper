@@ -6,61 +6,54 @@
 #include <queue>
 #include <boost/thread/mutex.hpp>
 
+/**
+ * This class is a threadsafe queue.
+ *
+ * @tparam <T> The objects to store in the queue
+ */
 template<class T>
 class ThreadsafeQueue
 {
 public:
+	/**
+	 * Create a new queue
+	 */
 	ThreadsafeQueue();
 
+	/**
+	 * Add an element to the back of the queue
+	 * @param data The element to be pushed
+	 */
 	void push(const T &data);
+
+	/**
+	 * Delete the first element of the queue and return it.
+	 * @return The (old) first element of the queue
+	 */
 	const T pop();
 
+	/**
+	 * Return the first element of the queue without deleting it.
+	 * @return The first element of the queue
+	 */
+	const T top();
+
+	/**
+	 * Check, if the queue is empty
+	 * @return True, iff the queue is empty
+	 */
 	bool empty() const;
 
+	/**
+	 * Return the number of elements currently stored in the queue
+	 * @return The number of elements currently stored in the queue
+	 */
 	unsigned int size() const;
 private:
 	std::queue<T> _queue;
 	mutable boost::mutex _mutex;
 };
 
-template<class T>
-inline ThreadsafeQueue<T>::ThreadsafeQueue()
-	:_queue(),_mutex()
-{
-}
-
-template<class T>
-inline void ThreadsafeQueue<T>::push(const T &object)
-{
-	boost::lock_guard<boost::mutex> lock(_mutex);
-
-	_queue.push(object);
-}
-
-template<class T>
-inline const T ThreadsafeQueue<T>::pop()
-{
-	boost::lock_guard<boost::mutex> lock(_mutex);
-
-	const T result=_queue.front();
-	_queue.pop();
-	return result;
-}
-
-template<class T>
-inline bool ThreadsafeQueue<T>::empty() const
-{
-	boost::lock_guard<boost::mutex> lock(_mutex);
-
-	return _queue.empty();
-}
-
-template<class T>
-inline unsigned int ThreadsafeQueue<T>::size() const
-{
-	boost::lock_guard<boost::mutex> lock(_mutex);
-
-	return _queue.size();
-}
+#include "impl/ThreadsafeQueue.impl.hpp"
 
 #endif /* __THREADSAFEQUEUE_HPP__ */
