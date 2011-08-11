@@ -24,7 +24,7 @@ private:
 	{
 	public:
 		ProducerThread(const unsigned int blocksize);
-		void operator()(Assembly<Data> *target);
+		Data operator()();
 
 		unsigned int seeding_status() const;
 	private:
@@ -59,6 +59,13 @@ inline unsigned int KernelEntropyProducer::ProducerThread::seeding_status() cons
 inline void KernelEntropyProducer::ProducerThread::inc_seedingstatus()
 {
 	++_seeding_status;
+}
+
+inline Data KernelEntropyProducer::ProducerThread::operator()()
+{
+	_seeding_status=0;
+	return (KernelEntropy::getEntropy(_blocksize,boost::bind(&KernelEntropyProducer::ProducerThread::inc_seedingstatus,this)));
+	//return Data(256);
 }
 
 inline unsigned int KernelEntropyProducer::seeding_status() const
