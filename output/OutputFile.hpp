@@ -18,7 +18,9 @@ class Outputfile
 public:
 	Outputfile(const std::string &filename);
 
-	void write(const Data data);
+	virtual ~Outputfile();
+
+	int write(const Data data);
 
 	unsigned long long int getBytesWritten() const;
 
@@ -38,20 +40,34 @@ inline Outputfile::Outputfile(const std::string &filename)
 		std::cerr << "Error opening output file" <<std::endl;
 }
 
+inline Outputfile::~Outputfile()
+{
+	if(_file==NULL)
+		return;
+
+	if(0!=fclose(_file))
+		std::cerr << "Error closing output file"<<std::endl;
+	_file=NULL;
+}
+
 inline void Outputfile::skip(unsigned long long int bytes)
 {
 	fseeko64(_file,bytes,SEEK_CUR);
 }
 
-inline void Outputfile::write(const Data data)
+inline int Outputfile::write(const Data data)
 {
-	fwrite(data.get(), data.size(), 1, _file);
+	int written=fwrite(data.get(), 1, data.size(), _file);
+
+	//TODO Handle eof separately, otherwise throw
+	//TODO Think about return values. Really return number of written bytes?
 	if (ferror(_file))
 	{
 		std::cerr << "Error writing to output or finished writing" << std::endl;
 	}
 
-	_bytes_written=_bytes_written+data.size();
+	_bytes_written=_bytes_written+written;
+	return written;
 }
 
 inline unsigned long long int Outputfile::getBytesWritten() const
