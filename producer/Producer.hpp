@@ -35,9 +35,6 @@ public:
 	 */
 	Producer(const unsigned int buffersize, boost::function<Product ()> producer);
 
-	Producer(const unsigned int buffersize);
-	void run(boost::function<Product ()> producer);
-
 	/**
 	 * Destructor
 	 */
@@ -58,89 +55,49 @@ public:
 	 */
 	unsigned int available_count() const;
 
+protected:
+	/**
+	 * Create a new producer but don't run it.
+	 * The producer must be ran later by a call to run().
+	 * This constructor is useful, if you derive a class
+	 * from this producer and use a class attribute as
+	 * producer function. In this case, the producer function
+	 * isn't initialized when calling the Producer constructor.
+	 * So run() must be called in the child class constructor
+	 * after its attributes were initialized.
+	 * @param buffersize
+	 * 		The number of elements the assembly can store.
+	 * 		If the assembly is full, the producer thread is blocked,
+	 * 		until a product was fetched from the assembly via a call to get().
+	 */
+	Producer(const unsigned int buffersize);
+	/**
+	 * Run the producer. This function can only be called once, and only
+	 * if the producer wasn't run in the constructor. See the description
+	 * for the constructor Producer(buffersize) for details.
+	 * @param producer
+	 * 		A function that generates one product. This function is called in another
+	 * 		thread, so if you use data structures from the current thread, make them thread safe.
+	 */
+	void run(boost::function<Product ()> producer);
+
 private:
 	class ProducerThread
 	{
 	public:
-		ProducerThread(Assembly<Product> &assembly, boost::function<Product ()> producer);
+		ProducerThread(Assembly<Product> &assembly, boost::function<Product ()> producerfunction);
 
 		void operator()();
 	private:
 		Assembly<Product> &_assembly;
-		boost::function<Product ()> _producer;
+		boost::function<Product ()> _producerfunction;
 	};
-	Assembly<Product> _products;
 
+	Assembly<Product> _products;
 	boost::thread _producer;
 	bool _initialized;
 };
 
-template<class Product>
-inline Producer<Product>::ProducerThread::ProducerThread(Assembly<Product> &assembly, boost::function<Product ()> producer)
-	:_assembly(assembly), _producer(producer)
-{
-}
-
-template<class Product>
-void Producer<Product>::ProducerThread::operator()()
-{
-	try
-	{
-		while (true)
-		{
-			_assembly.push(_producer());
-			boost::this_thread::interruption_point();
-		}
-	} catch (boost::thread_interrupted &interruptedexception)
-	{
-	}
-}
-
-template<class Product>
-inline Producer<Product>::Producer(
-		const unsigned int buffersize, boost::function<Product ()> producer) :
-	_products(buffersize), _producer(ProducerThread(_products,producer)),_initialized(true)
-{
-}
-
-template<class Product>
-inline Producer<Product>::Producer(
-		const unsigned int buffersize) :
-	_products(buffersize), _producer(),_initialized(false)
-{
-}
-
-#include <iostream>
-template<class Product>
-inline void Producer<Product>::run(boost::function<Product ()> producer)
-{
-	if(_initialized)
-	{
-		//TODO Exception instead of cerr
-		std::cerr << "Producer already initialized"<<std::endl;
-		return;
-	}
-	_producer=boost::thread(ProducerThread(_products,producer));
-	_initialized=true;
-}
-
-template<class Product>
-inline Producer<Product>::~Producer()
-{
-	_producer.interrupt();
-	_producer.join();
-}
-
-template<class Product>
-inline const Product Producer<Product>::get()
-{
-	return _products.pop();
-}
-
-template<class Product>
-inline unsigned int Producer<Product>::available_count() const
-{
-	return _products.size();
-}
+#include "impl/Producer.impl.hpp"
 
 #endif /* PRODUCER_HPP_ */
