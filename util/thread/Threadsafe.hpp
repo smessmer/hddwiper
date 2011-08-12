@@ -1,9 +1,4 @@
-/*
- * Threadsafe.hpp
- *
- *  Created on: 06.06.2011
- *      Author: ubuntu
- */
+#pragma once
 
 #ifndef THREADSAFE_HPP_
 #define THREADSAFE_HPP_

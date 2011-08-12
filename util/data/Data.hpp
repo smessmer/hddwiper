@@ -4,7 +4,6 @@
 #define __DATA_HPP__
 
 #include <tr1/memory>
-#include <stdexcept>
 
 #include "DataBase.hpp"
 

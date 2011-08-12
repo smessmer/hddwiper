@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef SEMAPHORE_HPP_
 #define SEMAPHORE_HPP_
 

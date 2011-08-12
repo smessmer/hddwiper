@@ -1,5 +1,7 @@
 #include "../Data.hpp"
 
+#include <stdexcept>
+
 const Data Data::getSubData(const unsigned int start, const unsigned int length) const
 {
 	/*
