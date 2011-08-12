@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
 
 //HDDTester
 /*
-#include "rc4/RC4Streamgenerator.hpp"
+#include "rc4/RC4StreamProducer.hpp"
 #include "kernelentropy/KernelEntropyProducer.hpp"
 #include "file/OutputFile.hpp"
 #include "file/InputFile.hpp"
@@ -57,8 +57,7 @@ int main(int argc, char *argv[])
 		   cout << "Couldn't write full entropy to disk" << endl;
    }
    cout << "\rSeeding...finished"<<endl;
-   RC4Streamgenerator generator(100*1024*1024,entropy);
-   Data random(100*1024*1024);
+   RC4StreamProducer generator(3,100*1024*1024,entropy);
    //Write
    int lastblock_written;
    unsigned long long int sum_written;
@@ -66,7 +65,7 @@ int main(int argc, char *argv[])
     OutputFile out(argv[1]);
     while(true)
     {
-      generator.getRandomBytes(random);
+      Data random = generator.get();
       lastblock_written=out.write(random);
       if(lastblock_written!=(int)random.size())
     	  break;
@@ -79,13 +78,13 @@ int main(int argc, char *argv[])
    //Check
    int lastblock_read;
    unsigned long long int sum_read;
-   generator.reseed(entropy);
+   RC4StreamProducer generator2(3,100*1024*1024,entropy);
    {
      InputFile in(argv[1]);
      Data read(100*1024*1024);
      while(true)
      {
-       generator.getRandomBytes(random);
+       Data random=generator2.get();
        lastblock_read=in.read(read);
        if(lastblock_read!=(int)random.size())
        {
@@ -108,5 +107,4 @@ int main(int argc, char *argv[])
 	   cerr << "Written byte count differs from read byte count"<<endl;
 
 }
-
 */
