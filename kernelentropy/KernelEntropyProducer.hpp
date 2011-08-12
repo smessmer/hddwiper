@@ -45,6 +45,8 @@ public:
 	 */
 	unsigned int seeding_status() const;
 
+	~KernelEntropyProducer();
+
 private:
 
 	//This function is called by the producer thread to set the current seeding status

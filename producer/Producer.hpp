@@ -32,6 +32,11 @@ public:
 	 * @param producer
 	 * 		A function that generates one product. This function is called in another
 	 * 		thread, so if you use data structures from the current thread, make them thread safe.
+	 * 		WARNING: If this function is a member function of a child class of Producer<T>,
+	 * 				 be sure to call stop() in the destructor of the child class.
+	 * 				 The destructor of Producer<T> will stop the producing thread anyway,
+	 * 				 but in the mean time (while waiting for the producing thread to get interrupted),
+	 * 				 the producing thread could call this callback function!
 	 */
 	Producer(const unsigned int buffersize, boost::function<Product ()> producer);
 
@@ -78,8 +83,19 @@ protected:
 	 * @param producer
 	 * 		A function that generates one product. This function is called in another
 	 * 		thread, so if you use data structures from the current thread, make them thread safe.
+	 * 		WARNING: If this function is a member function of a child class of Producer<T>,
+	 * 				 be sure to call stop() in the destructor of the child class.
+	 * 				 The destructor of Producer<T> will stop the producing thread anyway,
+	 * 				 but in the mean time (while waiting for the producing thread to get interrupted),
+	 * 				 the producing thread could call this callback function!
 	 */
 	void run(boost::function<Product ()> producer);
+
+	/**
+	 * Stop the producer process, if running, and block until it is terminated.
+	 * When this function returns, the producer process is guaranteed to be stopped.
+	 */
+	void stop();
 
 private:
 	class ProducerThread

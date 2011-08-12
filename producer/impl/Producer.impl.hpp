@@ -33,7 +33,6 @@ inline Producer<Product>::Producer(
 {
 }
 
-#include <iostream>
 template<class Product>
 inline void Producer<Product>::run(boost::function<Product ()> producer)
 {
@@ -46,6 +45,12 @@ inline void Producer<Product>::run(boost::function<Product ()> producer)
 
 template<class Product>
 inline Producer<Product>::~Producer()
+{
+	stop();
+}
+
+template<class Product>
+inline void Producer<Product>::stop()
 {
 	_producer.interrupt();
 	_producer.join();

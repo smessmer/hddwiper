@@ -37,6 +37,11 @@ public:
 	RC4StreamProducer(const unsigned int buffersize,
 			const unsigned int blocksize, const Data &seed);
 
+	/**
+	 * Destructor
+	 */
+	virtual ~RC4StreamProducer();
+
 protected:
 
 	/**

@@ -5,6 +5,11 @@ inline KernelEntropyProducer::KernelEntropyProducer(
 	run(boost::bind(&KernelEntropyProducer::_generate,this));
 }
 
+inline KernelEntropyProducer::~KernelEntropyProducer()
+{
+	stop();
+}
+
 inline void KernelEntropyProducer::_set_seedingstatus(unsigned int seedingstatus)
 {
 	_seeding_status=seedingstatus;

@@ -23,3 +23,17 @@ inline void RC4StreamProducerAutoseed::BeforeProduce()
 	}
 	--_count_until_reseed;
 }
+
+inline RC4StreamProducerAutoseed::~RC4StreamProducerAutoseed()
+{
+	//The producer thread started by Producer<T> has a callback function
+	//calling a function in RC4StreamProducer which calls a virtual
+	//function of RC4StreamProducerAutoseed.
+	//Producer<T>::~Producer waits for this thread to stop, but
+	//while waiting the RC4StreamProducerAutoseed object is already
+	//destroyed, so the callback function will call a function of
+	//a destroyed object => not so good.
+	//So be sure that the producer thread is stopped, before
+	//RC4StreamProducerAutoseed is destroyed.
+	stop();
+}

@@ -36,6 +36,11 @@ public:
 			const unsigned int blocksize);
 
 	/**
+	 * Destructor
+	 */
+	virtual ~RC4StreamProducerAutoseed();
+
+	/**
 	 * Return the current available count of seed blocks,
 	 * which can be used for future reseeding.
 	 *
