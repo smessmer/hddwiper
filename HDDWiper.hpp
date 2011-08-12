@@ -5,7 +5,7 @@
 #include <boost/thread.hpp>
 
 #include "rc4/RC4StreamProducer.hpp"
-#include "output/OutputFile.hpp"
+#include "file/OutputFile.hpp"
 #include "util/thread/Threadsafe.hpp"
 
 class HDDWiper
@@ -45,7 +45,7 @@ private:
 		Threadsafe<double> _currentspeed;
 	};
 
-	Outputfile _output;
+	OutputFile _output;
 
 	WipingThread _wipingthread;
 	boost::thread _wipingthread_thread;

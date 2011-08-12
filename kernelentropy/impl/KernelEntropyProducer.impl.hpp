@@ -14,7 +14,6 @@ inline const Data KernelEntropyProducer::_generate()
 {
 	_seeding_status=0;
 	return KernelEntropy::getEntropy(_blocksize,boost::bind(&KernelEntropyProducer::_set_seedingstatus,this,_1));
-	//return Data(256);
 }
 
 inline unsigned int KernelEntropyProducer::seeding_status() const

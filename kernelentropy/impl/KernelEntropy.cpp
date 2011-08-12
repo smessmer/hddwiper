@@ -7,6 +7,7 @@ const Data KernelEntropy::getEntropy(const unsigned int size,
 		boost::function<void(unsigned int)> callback)
 {
 	Data result(size);
+	//return result;
 
 	FILE *file = fopen("/dev/random", "rb");
 	if (file == NULL)
