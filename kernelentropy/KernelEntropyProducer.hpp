@@ -10,67 +10,52 @@
 
 #include <boost/thread.hpp>
 
+/**
+ * This class is able to produce kernel entropy in another thread
+ * and make it available to the current thread. So the current thread
+ * does not have to pause while waiting for the kernel entropy.
+ *
+ * @author Sebastian Meßmer
+ */
 class KernelEntropyProducer: public Producer<Data>
 {
 public:
+	/**
+	 * Create a new kernel entropy producer.
+	 * This constructor immediately starts a new
+	 * thread which is generating entropy.
+	 *
+	 * @param buffersize
+	 * 		The number of blocks to store in buffer.
+	 * 		If the buffer is full and nobody fetches its content,
+	 * 		the producer thread pauses until a block of data is fetched.
+	 * @param blocksize
+	 * 		The number of bytes one block of entropy data contains.
+	 */
 	KernelEntropyProducer(const unsigned int buffersize,
 			const unsigned int blocksize);
 
+	/**
+	 * Return the number of bytes that are currently received for generating
+	 * the current block. This is a value between 0 and the blocksize given
+	 * in the constructor. It can be used for a progress bar to show the
+	 * progress in generating the current block of kernel entropy.
+	 *
+	 * @return The number of bytes that are currently received for generating the current block.
+	 */
 	unsigned int seeding_status() const;
 
 private:
 
-	class ProducerThread
-	{
-	public:
-		ProducerThread(const unsigned int blocksize);
-		Data operator()();
+	//This function is called by the producer thread to set the current seeding status
+	void _set_seedingstatus(unsigned int seedingstatus);
+	//This function is called by the producer thread to get the next block of entropy
+	const Data _generate();
 
-		unsigned int seeding_status() const;
-	private:
-		void inc_seedingstatus();
-		const unsigned int _blocksize;
-		Threadsafe<unsigned int> _seeding_status;
-	};
-
-	ProducerThread _producerthread;
-
-
+	const unsigned int _blocksize;
+	Threadsafe<unsigned int> _seeding_status;
 };
 
-inline KernelEntropyProducer::KernelEntropyProducer(
-		const unsigned int buffersize, const unsigned int blocksize) :
-	Producer<Data>(buffersize),  _producerthread(blocksize)
-{
-	run(boost::ref(_producerthread));
-}
-
-inline KernelEntropyProducer::ProducerThread::ProducerThread(
-		const unsigned int blocksize) :
-	_blocksize(blocksize),_seeding_status(0)
-{
-}
-
-inline unsigned int KernelEntropyProducer::ProducerThread::seeding_status() const
-{
-	return _seeding_status;
-}
-
-inline void KernelEntropyProducer::ProducerThread::inc_seedingstatus()
-{
-	++_seeding_status;
-}
-
-inline Data KernelEntropyProducer::ProducerThread::operator()()
-{
-	_seeding_status=0;
-	return (KernelEntropy::getEntropy(_blocksize,boost::bind(&KernelEntropyProducer::ProducerThread::inc_seedingstatus,this)));
-	//return Data(256);
-}
-
-inline unsigned int KernelEntropyProducer::seeding_status() const
-{
-	return _producerthread.seeding_status();
-}
+#include "impl/KernelEntropyProducer.impl.hpp"
 
 #endif /* KERNELENTROPYPRODUCER_HPP_ */
