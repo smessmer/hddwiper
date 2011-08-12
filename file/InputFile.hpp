@@ -12,7 +12,7 @@ class InputFile: public AbstractFile
 public:
 	InputFile(const std::string &filename);
 
-	int read(Data &data);
+	size_t read(Data &data);
 	
 	unsigned long long int getBytesRead() const;
 

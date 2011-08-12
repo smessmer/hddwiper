@@ -1,6 +1,6 @@
 #include "../OutputFile.hpp"
 
-int OutputFile::write(const Data data)
+size_t OutputFile::write(const Data data)
 {
 	size_t written=fwrite(data.get(), 1, data.size(), _file);
 

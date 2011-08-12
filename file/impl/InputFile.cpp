@@ -1,6 +1,6 @@
 #include "../InputFile.hpp"
 
-int InputFile::read(Data &data)
+size_t InputFile::read(Data &data)
 {
 	size_t read=fread(data.get(), 1, data.size(), _file);
 	if((read!=data.size()) && (!feof(_file)))
