@@ -6,9 +6,10 @@ size_t OutputFile::write(const Data data)
 
 	if(written!=data.size())
 	{
-		//TODO Why is ferror(_file) returning EPERM when "there is no space left on device"?
-		if(ferror(_file)!=EPERM)
-			throw std::runtime_error("Error writing to output file. ferror: " + IntToStr(ferror(_file)));
+		if(!ferror(_file))
+			throw std::runtime_error("Written too less without error (strange)");
+		if(errno!=ENOSPC)
+			throw std::runtime_error("Error writing to output file. errno: " + IntToStr(errno));
 	}
 
 	_bytes_written=_bytes_written+written;
