@@ -4,7 +4,7 @@
 #include <string>
 #include <boost/thread.hpp>
 
-#include "rc4/RC4StreamProducer.hpp"
+#include "rc4/RC4StreamProducerAutoseed.hpp"
 #include "file/OutputFile.hpp"
 #include "util/thread/Threadsafe.hpp"
 
@@ -24,6 +24,8 @@ public:
 	unsigned int getSeedBufferSize() const;
 
 	unsigned int getSeedingStatus() const;
+
+	bool isRunning() const;
 private:
 	class WipingThread
 	{
@@ -36,13 +38,15 @@ private:
 		unsigned int getSeedBufferSize() const;
 		double getCurrentSpeed() const;
 		unsigned int getSeedingStatus() const;
+		bool isRunning() const;
 	private:
 		WipingThread(const WipingThread &rhs);
 		WipingThread &operator=(const WipingThread &rhs);
 
 		HDDWiper &_wiper;
-		std::tr1::shared_ptr<RC4StreamProducer> _generator;
+		std::tr1::shared_ptr<RC4StreamProducerAutoseed> _generator;
 		Threadsafe<double> _currentspeed;
+		Threadsafe<bool> _is_running;
 	};
 
 	OutputFile _output;
@@ -52,7 +56,7 @@ private:
 };
 
 inline HDDWiper::WipingThread::WipingThread(HDDWiper &wiper)
-	:_wiper(wiper),_generator(),_currentspeed(0)
+	:_wiper(wiper),_generator(),_currentspeed(0),_is_running(true)
 {
 }
 
@@ -106,6 +110,16 @@ inline unsigned int HDDWiper::getSeedBufferSize() const
 inline unsigned int HDDWiper::getSeedingStatus() const
 {
 	return _wipingthread.getSeedingStatus();
+}
+
+inline bool HDDWiper::isRunning() const
+{
+	return _wipingthread.isRunning();
+}
+
+inline bool HDDWiper::WipingThread::isRunning() const
+{
+	return _is_running;
 }
 
 inline unsigned int HDDWiper::WipingThread::getSeedingStatus() const

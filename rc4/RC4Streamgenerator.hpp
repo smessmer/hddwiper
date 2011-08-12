@@ -3,57 +3,60 @@
 #ifndef __RC4STREAMGENERATOR_HPP__
 #define __RC4STREAMGENERATOR_HPP__
 
-#include <openssl/rc4.h>
 #include <boost/function.hpp>
+#include <openssl/rc4.h>
 
 #include "util/data/Data.hpp"
-#include "util/DummyCallback.hpp"
-#include "kernelentropy/KernelEntropy.hpp"
 
+/**
+ * This class is able to generate a RC4 stream.
+ *
+ * @author Sebastian Meßmer
+ */
 class RC4Streamgenerator
 {
 public:
+	/**
+	 * Create a new RC4 stream generator and seed it
+	 *
+	 * @param blocksize The amount of random data that is fetched at once from the stream
+	 * @param seed
+	 * 		The seeding value (key) for the RC4 algorithm.
+     *  	The length should be between 1 and 256 bytes.
+	 */
 	RC4Streamgenerator(const unsigned int blocksize, const Data &seed);
+
+	/**
+	 * Create a new RC4 stream generator but don't seed it
+	 *
+	 * @param blocksize The amount of random data that is fetched at once from the stream
+	 */
 	RC4Streamgenerator(const unsigned int blocksize);
 
+	/**
+	 * Return the next block of random data
+	 * @return The next block of random data
+	 */
 	const Data getRandomBytes();
+
+	/**
+	 * Write the next block of random data into the given memory
+	 * @param data The memory where to write to
+	 */
 	const void getRandomBytes(Data &data);
 
+	/**
+	 * Restart the stream generator with the given seed (key)
+	 * @param seeddata
+	 * 		The seeding value (key) for the RC4 algorithm.
+     *  	The length should be between 1 and 256 bytes.
+	 */
 	void reseed(const Data &seeddata);
 private:
-	const unsigned int _blocksize;
 	Data _zeroes;
 	RC4_KEY _key;
 };
 
-inline RC4Streamgenerator::RC4Streamgenerator(const unsigned int blocksize, const Data &seed) :
-	_blocksize(blocksize),_zeroes(_blocksize), _key()
-{
-	memset(_zeroes.get(), 0, _blocksize);
-	reseed(seed);
-}
-
-inline RC4Streamgenerator::RC4Streamgenerator(const unsigned int blocksize) :
-	_blocksize(blocksize),_zeroes(_blocksize), _key()
-{
-	memset(_zeroes.get(), 0, _blocksize);
-}
-
-inline void RC4Streamgenerator::reseed(const Data &seeddata)
-{
-	RC4_set_key(&_key, seeddata.size(), seeddata.get());
-}
-
-inline const Data RC4Streamgenerator::getRandomBytes()
-{
-	Data result(_blocksize);
-	getRandomBytes(result);
-	return result;
-}
-
-inline const void RC4Streamgenerator::getRandomBytes(Data &data)
-{
-	RC4(&_key, _blocksize, _zeroes.get(), data.get());
-}
+#include "impl/RC4Streamgenerator.impl.hpp"
 
 #endif

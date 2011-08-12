@@ -4,9 +4,9 @@
 
 void HDDWiper::WipingThread::operator()()
 {
-	_generator=std::tr1::shared_ptr<RC4StreamProducer>(new RC4StreamProducer(HDDWiper::BUFFERSIZE,HDDWiper::BLOCKSIZE));
+	_generator=std::tr1::shared_ptr<RC4StreamProducerAutoseed>(new RC4StreamProducerAutoseed(HDDWiper::BUFFERSIZE,HDDWiper::BLOCKSIZE));
 	double newspeed=0;
-	while(true)
+	while(_is_running)
 	{
 		Profiler time;
 
@@ -16,7 +16,10 @@ void HDDWiper::WipingThread::operator()()
 		_currentspeed=newspeed;
 
 		//Write random data to output
-		_wiper._output.write(randomdata);
+		if(randomdata.size()!=_wiper._output.write(randomdata))
+		{
+			_is_running=false;  //There is no space left on device
+		}
 
 		//Recalculate current speed
 		newspeed=static_cast<double> (HDDWiper::BLOCKSIZE) / 1024
