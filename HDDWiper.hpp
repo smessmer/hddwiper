@@ -11,9 +11,8 @@
 class HDDWiper
 {
 public:
-	static const unsigned int BUFFERSIZE=5; //in blocks
 
-	HDDWiper(const std::string &filename, const long long int skip=0, const long long int blocksize=100*1024*1024);
+	HDDWiper(const std::string &filename, const unsigned long long int skip=0, const unsigned long long int blocksize=100*1024*1024, const unsigned int buffersize=5);
 
 	double getCurrentSpeed() const;
 
@@ -26,7 +25,8 @@ public:
 
 	bool isRunning() const;
 
-	long long int getBlocksize() const;
+	unsigned long long int getBlocksize() const;
+	unsigned int getBuffersize() const;
 private:
 	class WipingThread
 	{
@@ -50,7 +50,10 @@ private:
 		Threadsafe<bool> _is_running;
 	};
 
-	long long int _blocksize;
+	//Size of one block of generated random data
+	unsigned long long int _blocksize;
+	//Maximum number of random blocks to store in the generating queue (producer/consumer pattern)
+	unsigned int _buffersize;
 
 	OutputFile _output;
 
@@ -68,16 +71,21 @@ inline double HDDWiper::WipingThread::getCurrentSpeed() const
 	return _currentspeed;
 }
 
-inline HDDWiper::HDDWiper(const std::string &filename, const long long int skip, const long long int blocksize)
-	:_blocksize(blocksize),_output(filename),_wipingthread(*this),_wipingthread_thread(boost::ref(_wipingthread))
+inline HDDWiper::HDDWiper(const std::string &filename, const unsigned long long int skip, const unsigned long long int blocksize, const unsigned int buffersize)
+	:_blocksize(blocksize),_buffersize(buffersize),_output(filename),_wipingthread(*this),_wipingthread_thread(boost::ref(_wipingthread))
 {
 	if(skip>0)
 		_output.skip(skip);
 }
 
-inline long long int HDDWiper::getBlocksize() const
+inline unsigned long long int HDDWiper::getBlocksize() const
 {
 	return _blocksize;
+}
+
+inline unsigned int HDDWiper::getBuffersize() const
+{
+	return _buffersize;
 }
 
 inline double HDDWiper::getCurrentSpeed() const
