@@ -11,10 +11,9 @@
 class HDDWiper
 {
 public:
-	static const unsigned int BLOCKSIZE=100*1024*1024;
 	static const unsigned int BUFFERSIZE=5; //in blocks
 
-	HDDWiper(const std::string &filename, const long long int skip=0);
+	HDDWiper(const std::string &filename, const long long int skip=0, const long long int blocksize=100*1024*1024);
 
 	double getCurrentSpeed() const;
 
@@ -26,6 +25,8 @@ public:
 	unsigned int getSeedingStatus() const;
 
 	bool isRunning() const;
+
+	long long int getBlocksize() const;
 private:
 	class WipingThread
 	{
@@ -49,6 +50,8 @@ private:
 		Threadsafe<bool> _is_running;
 	};
 
+	long long int _blocksize;
+
 	OutputFile _output;
 
 	WipingThread _wipingthread;
@@ -65,11 +68,16 @@ inline double HDDWiper::WipingThread::getCurrentSpeed() const
 	return _currentspeed;
 }
 
-inline HDDWiper::HDDWiper(const std::string &filename, const long long int skip)
-	:_output(filename),_wipingthread(*this),_wipingthread_thread(boost::ref(_wipingthread))
+inline HDDWiper::HDDWiper(const std::string &filename, const long long int skip, const long long int blocksize)
+	:_blocksize(blocksize),_output(filename),_wipingthread(*this),_wipingthread_thread(boost::ref(_wipingthread))
 {
 	if(skip>0)
 		_output.skip(skip);
+}
+
+inline long long int HDDWiper::getBlocksize() const
+{
+	return _blocksize;
 }
 
 inline double HDDWiper::getCurrentSpeed() const

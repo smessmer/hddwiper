@@ -4,7 +4,7 @@
 
 void HDDWiper::WipingThread::operator()()
 {
-	_generator=std::tr1::shared_ptr<RC4StreamProducerAutoseed>(new RC4StreamProducerAutoseed(HDDWiper::BUFFERSIZE,HDDWiper::BLOCKSIZE));
+	_generator=std::tr1::shared_ptr<RC4StreamProducerAutoseed>(new RC4StreamProducerAutoseed(HDDWiper::BUFFERSIZE,_wiper.getBlocksize()));
 	double newspeed=0;
 	while(_is_running)
 	{
@@ -22,7 +22,7 @@ void HDDWiper::WipingThread::operator()()
 		}
 
 		//Recalculate current speed
-		newspeed=static_cast<double> (HDDWiper::BLOCKSIZE) / 1024
+		newspeed=static_cast<double> (_wiper.getBlocksize()) / 1024
 				/ 1024 / time.getSecondsPassed();
 	}
 }

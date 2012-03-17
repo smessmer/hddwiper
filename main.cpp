@@ -8,15 +8,37 @@ using namespace std;
 
 namespace po=boost::program_options;
 
+long long int StringToBytecount(string toParse)
+{
+	long long int result=1;
+	switch(toParse[toParse.size()-1])
+	{
+	case 'T':
+		result*=1024;
+	case 'G':
+		result*=1024;
+	case 'M':
+		result*=1024;
+	case 'K':
+		result*=1024;
+	case 'B':
+		toParse=toParse.substr(0,toParse.size()-1);
+	default:
+		result*=boost::lexical_cast<long double>(toParse);
+	}
+	return result;
+}
+
 // HDDWiper
 
 int main(int argc, char *argv[])
 {
 	struct Options {
-		Options(): output(),skip(0) {}
+		Options(): output(),skip(0),blocksize(0) {}
 
 		string output;
 		long long int skip;
+		long long int blocksize;
 	} options;
 
 	//General options
@@ -24,6 +46,7 @@ int main(int argc, char *argv[])
 	desc.add_options()
 	    ("help,h", "Show this message")
 	    ("skip,s", po::value<string>()->default_value("0"), "Number of bytes to skip at the start of the output file.\nYou can either give the amount in bytes or use one of the postfixes K,M,G,T, when you want to use the corresponding power of 1024.\nYou can use floating point values (for example 3.4K).")
+	    ("blocksize,b", po::value<string>()->default_value("100M"), "Size of the random blocks that are generated, stored in memory, and in one rush written to the disk. For the allowed option syntax see the skip option (example: --blocksize=10.2M)")
 	;
 
 	//Positional options (output file)
@@ -40,35 +63,28 @@ int main(int argc, char *argv[])
 	          options(posdesc).positional(p).run(), vm);
 	po::notify(vm);
 
-	//Parse skip argument
+	//Parse arguments
+	options.skip=StringToBytecount(vm["skip"].as<string>());
+	if(options.skip<0)
 	{
-		string skipString(vm["skip"].as<string>());
-		options.skip=1;
-		switch(skipString[skipString.size()-1])
-		{
-		case 'T':
-			options.skip*=1024;
-		case 'G':
-			options.skip*=1024;
-		case 'M':
-			options.skip*=1024;
-		case 'K':
-			options.skip*=1024;
-		case 'B':
-			skipString=skipString.substr(0,skipString.size()-1);
-		default:
-			options.skip*=boost::lexical_cast<long double>(skipString);
-		}
+		cerr << "Negative --skip value isn't allowed\n";
+		return EXIT_FAILURE;
+	}
+	options.blocksize=StringToBytecount(vm["blocksize"].as<string>());
+	if(options.blocksize<0)
+	{
+		cerr << "Negative --blocksize value isn't allowed\n";
+		return EXIT_FAILURE;
 	}
 
-	cout << options.skip << "\n";
+	cout << options.blocksize << "\n";
 
 	if (vm.count("help") or !vm.count("output")) {
 	    cout << desc << "\n";
 	    return 1;
 	}
 
-	HDDWiper wiper(options.output,options.skip);
+	HDDWiper wiper(options.output,options.skip,options.blocksize);
 
 	while (wiper.isRunning())
 	{
