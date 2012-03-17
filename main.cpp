@@ -1,20 +1,50 @@
 #include <iostream>
+#include <boost/program_options.hpp>
 
 #include "HDDWiper.hpp"
 
 using namespace std;
 
+namespace po=boost::program_options;
+
 // HDDWiper
 
 int main(int argc, char *argv[])
 {
-	if (argc < 2)
-	{
-		cout << "Syntax: " << argv[0] << " [targetfile]" << endl;
-		return 1;
+	struct Options {
+		Options(): output(),skip(0) {}
+
+		string output;
+		int skip;
+	} options;
+
+	//General options
+	po::options_description desc(string("\nSyntax: ")+argv[0]+" [Options] output-file\n\nOptions");
+	desc.add_options()
+	    ("help,h", "Show this message")
+	    ("skip,s", po::value<int>(&options.skip)->default_value(0), "Number of bytes to skip at the start of the output file")
+	;
+
+	//Positional options (output file)
+	po::options_description posdesc;
+	posdesc.add(desc).add_options()
+		("output", po::value<string>(&options.output), "File where to write the random data to")
+	;
+	po::positional_options_description p;
+	p.add("output", 1);
+
+	//Parse command line
+	po::variables_map vm;
+	po::store(po::command_line_parser(argc, argv).
+	          options(posdesc).positional(p).run(), vm);
+	po::notify(vm);
+
+	if (vm.count("help") or !vm.count("output")) {
+	    cout << desc << "\n";
+	    return 1;
 	}
 
-	HDDWiper wiper(argv[1]);
+	HDDWiper wiper(options.output,options.skip);
 
 	while (wiper.isRunning())
 	{

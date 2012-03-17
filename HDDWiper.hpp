@@ -14,7 +14,7 @@ public:
 	static const unsigned int BLOCKSIZE=100*1024*1024;
 	static const unsigned int BUFFERSIZE=5; //in blocks
 
-	HDDWiper(const std::string &filename);
+	HDDWiper(const std::string &filename, const int skip=0);
 
 	double getCurrentSpeed() const;
 
@@ -65,10 +65,11 @@ inline double HDDWiper::WipingThread::getCurrentSpeed() const
 	return _currentspeed;
 }
 
-inline HDDWiper::HDDWiper(const std::string &filename)
+inline HDDWiper::HDDWiper(const std::string &filename, const int skip)
 	:_output(filename),_wipingthread(*this),_wipingthread_thread(boost::ref(_wipingthread))
 {
-//	_output.skip(700L*1024*1024*1024);
+	if(skip>0)
+		_output.skip(skip);
 }
 
 inline double HDDWiper::getCurrentSpeed() const
