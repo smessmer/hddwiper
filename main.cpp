@@ -1,5 +1,6 @@
 #include <iostream>
 #include <boost/program_options.hpp>
+#include <boost/lexical_cast.hpp>
 
 #include "HDDWiper.hpp"
 
@@ -22,7 +23,7 @@ int main(int argc, char *argv[])
 	po::options_description desc(string("\nSyntax: ")+argv[0]+" [Options] output-file\n\nOptions");
 	desc.add_options()
 	    ("help,h", "Show this message")
-	    ("skip,s", po::value<long long int>(&options.skip)->default_value(0), "Number of bytes to skip at the start of the output file")
+	    ("skip,s", po::value<string>()->default_value("0"), "Number of bytes to skip at the start of the output file.\nYou can either give the amount in bytes or use one of the postfixes K,M,G,T, when you want to use the corresponding power of 1024.\nYou can use floating point values (for example 3.4K).")
 	;
 
 	//Positional options (output file)
@@ -38,6 +39,29 @@ int main(int argc, char *argv[])
 	po::store(po::command_line_parser(argc, argv).
 	          options(posdesc).positional(p).run(), vm);
 	po::notify(vm);
+
+	//Parse skip argument
+	{
+		string skipString(vm["skip"].as<string>());
+		options.skip=1;
+		switch(skipString[skipString.size()-1])
+		{
+		case 'T':
+			options.skip*=1024;
+		case 'G':
+			options.skip*=1024;
+		case 'M':
+			options.skip*=1024;
+		case 'K':
+			options.skip*=1024;
+		case 'B':
+			skipString=skipString.substr(0,skipString.size()-1);
+		default:
+			options.skip*=boost::lexical_cast<long double>(skipString);
+		}
+	}
+
+	cout << options.skip << "\n";
 
 	if (vm.count("help") or !vm.count("output")) {
 	    cout << desc << "\n";
