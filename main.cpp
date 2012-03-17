@@ -15,14 +15,14 @@ int main(int argc, char *argv[])
 		Options(): output(),skip(0) {}
 
 		string output;
-		int skip;
+		long long int skip;
 	} options;
 
 	//General options
 	po::options_description desc(string("\nSyntax: ")+argv[0]+" [Options] output-file\n\nOptions");
 	desc.add_options()
 	    ("help,h", "Show this message")
-	    ("skip,s", po::value<int>(&options.skip)->default_value(0), "Number of bytes to skip at the start of the output file")
+	    ("skip,s", po::value<long long int>(&options.skip)->default_value(0), "Number of bytes to skip at the start of the output file")
 	;
 
 	//Positional options (output file)
