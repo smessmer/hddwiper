@@ -1,6 +1,6 @@
 inline RC4StreamProducerAutoseed::RC4StreamProducerAutoseed(
-		const unsigned int buffersize, const unsigned int blocksize) :
-	RC4StreamProducer(buffersize,blocksize),_count_until_reseed(0),_entropyproducer(SEEDCOUNT,SEEDSIZE)
+		const unsigned int buffersize, const unsigned int blocksize, const unsigned int blocks_per_seed) :
+	RC4StreamProducer(buffersize,blocksize),_blocks_per_seed(blocks_per_seed),_count_until_reseed(0),_entropyproducer(SEEDCOUNT,SEEDSIZE)
 {
 }
 
@@ -19,7 +19,7 @@ inline void RC4StreamProducerAutoseed::BeforeProduce()
 	if(_count_until_reseed==0)
 	{
 		reseed(_entropyproducer.get());
-		_count_until_reseed=100;
+		_count_until_reseed=_blocks_per_seed;
 	}
 	--_count_until_reseed;
 }

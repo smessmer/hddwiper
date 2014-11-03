@@ -33,7 +33,7 @@ public:
 	 *
 	 */
 	RC4StreamProducerAutoseed(const unsigned int buffersize,
-			const unsigned int blocksize);
+			const unsigned int blocksize, const unsigned int blocks_per_seed);
 
 	/**
 	 * Destructor
@@ -60,6 +60,7 @@ private:
 	static const unsigned int SEEDSIZE=256;
 	static const unsigned int SEEDCOUNT=200;
 
+	int _blocks_per_seed;
 	int _count_until_reseed;
 
 	KernelEntropyProducer _entropyproducer;
