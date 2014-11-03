@@ -1,5 +1,3 @@
-#include "util/cast.hpp"
-
 inline OutputFile::OutputFile(const std::string &filename)
 	:AbstractFile(filename,"wb"),_bytes_written(0)
 {

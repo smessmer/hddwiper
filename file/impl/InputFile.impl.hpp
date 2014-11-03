@@ -1,5 +1,3 @@
-#include "util/cast.hpp"
-
 inline InputFile::InputFile(const std::string &filename)
 	:AbstractFile(filename,"rb"),_bytes_read(0)
 {
