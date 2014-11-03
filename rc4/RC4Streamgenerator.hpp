@@ -4,7 +4,8 @@
 #define __RC4STREAMGENERATOR_HPP__
 
 #include <functional>
-#include <openssl/rc4.h>
+#include <crypto++/cryptlib.h>
+#include <memory>
 
 #include "util/data/Data.hpp"
 
@@ -22,7 +23,7 @@ public:
 	 * @param blocksize The amount of random data that is fetched at once from the stream
 	 * @param seed
 	 * 		The seeding value (key) for the RC4 algorithm.
-     *  	The length should be between 1 and 256 bytes.
+     *  	The length should fit the return value of SeedSize().
 	 */
 	RC4Streamgenerator(const unsigned int blocksize, const Data &seed);
 
@@ -49,12 +50,17 @@ public:
 	 * Restart the stream generator with the given seed (key)
 	 * @param seeddata
 	 * 		The seeding value (key) for the RC4 algorithm.
-     *  	The length should be between 1 and 256 bytes.
+     *  	The length should fit the return value of SeedSize().
 	 */
 	void reseed(const Data &seeddata);
+
+	/**
+	 * Return the seed size we need(in bytes)
+	 */
+	static unsigned int SeedSize();
 private:
 	Data _zeroes;
-	RC4_KEY _key;
+	std::unique_ptr<CryptoPP::SymmetricCipher> _cipher;
 };
 
 #include "impl/RC4Streamgenerator.impl.hpp"

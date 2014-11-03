@@ -57,7 +57,6 @@ public:
 
 private:
 
-	static const unsigned int SEEDSIZE=256;
 	static const unsigned int SEEDCOUNT=200;
 
 	int _blocks_per_seed;
