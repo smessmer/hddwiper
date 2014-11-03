@@ -6,7 +6,6 @@
 #include <functional>
 
 #include "util/data/Data.hpp"
-#include "util/DummyCallback.hpp"
 
 /**
  * This is a class with static functions,
@@ -28,8 +27,8 @@ public:
 	 * 		The callback function has one parameter, which is the number of already read bytes.
 	 * 		This parameter is optional.
 	 */
-	static const Data getEntropy(const unsigned int size, std::function<void(
-			unsigned int)> callback = DummyCallback());
+	static const Data getEntropy(const unsigned int size,
+			std::function<void(unsigned int)> callback = [](unsigned int){});
 };
 
 #include "impl/KernelEntropy.impl.hpp"
