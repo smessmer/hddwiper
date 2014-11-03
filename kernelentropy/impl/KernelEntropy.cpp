@@ -4,7 +4,7 @@
 #include <stdexcept>
 
 const Data KernelEntropy::getEntropy(const unsigned int size,
-		boost::function<void(unsigned int)> callback)
+		std::function<void(unsigned int)> callback)
 {
 	Data result(size);
 	//return result;

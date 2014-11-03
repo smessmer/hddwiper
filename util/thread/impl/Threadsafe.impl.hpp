@@ -20,14 +20,14 @@ inline Threadsafe<T> &Threadsafe<T>::operator=(const Threadsafe<T> &rhs)
 template<class T>
 inline void Threadsafe<T>::set(const T &object)
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 	_object=object;
 }
 
 template<class T>
 inline const T Threadsafe<T>::get() const
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 	return _object;
 }
 
@@ -40,7 +40,7 @@ inline Threadsafe<T>::operator const T() const
 template<class T>
 inline Threadsafe<T> &Threadsafe<T>::operator+=(const T &rhs)
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 	_object+=rhs;
 	return *this;
 }
@@ -48,7 +48,7 @@ inline Threadsafe<T> &Threadsafe<T>::operator+=(const T &rhs)
 template<class T>
 inline Threadsafe<T> &Threadsafe<T>::operator++()
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 	++_object;
 	return *this;
 }
@@ -64,7 +64,7 @@ inline const Threadsafe<T> Threadsafe<T>::operator++(int)
 template<class T>
 inline Threadsafe<T> &Threadsafe<T>::operator--()
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 	--_object;
 	return *this;
 }

@@ -2,7 +2,7 @@ inline KernelEntropyProducer::KernelEntropyProducer(
 		const unsigned int buffersize, const unsigned int blocksize) :
 	Producer<Data>(buffersize),_blocksize(blocksize),_seeding_status(0)
 {
-	run(boost::bind(&KernelEntropyProducer::_generate,this));
+	run(std::bind(&KernelEntropyProducer::_generate,this));
 }
 
 inline KernelEntropyProducer::~KernelEntropyProducer()
@@ -18,7 +18,7 @@ inline void KernelEntropyProducer::_set_seedingstatus(unsigned int seedingstatus
 inline const Data KernelEntropyProducer::_generate()
 {
 	_seeding_status=0;
-	return KernelEntropy::getEntropy(_blocksize,boost::bind(&KernelEntropyProducer::_set_seedingstatus,this,_1));
+	return KernelEntropy::getEntropy(_blocksize,std::bind(&KernelEntropyProducer::_set_seedingstatus,this,std::placeholders::_1));
 }
 
 inline unsigned int KernelEntropyProducer::seeding_status() const

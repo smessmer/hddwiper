@@ -3,7 +3,8 @@
 #ifndef SEMAPHORE_HPP_
 #define SEMAPHORE_HPP_
 
-#include <boost/thread/condition_variable.hpp>
+#include <mutex>
+#include <condition_variable>
 
 /**
  * Implements a semaphore for thread synchronization.
@@ -39,8 +40,8 @@ private:
 	Semaphore(const Semaphore &rhs);
 	Semaphore &operator=(const Semaphore &rhs);
 
-	boost::mutex _mutex;
-	boost::condition_variable _wait;
+	std::mutex _mutex;
+	std::condition_variable _wait;
 	int _value;
 };
 

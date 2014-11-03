@@ -38,7 +38,7 @@ public:
 	 * 				 but in the mean time (while waiting for the producing thread to get interrupted),
 	 * 				 the producing thread could call this callback function!
 	 */
-	Producer(const unsigned int buffersize, boost::function<Product ()> producer);
+	Producer(const unsigned int buffersize, std::function<Product ()> producer);
 
 	/**
 	 * Destructor
@@ -89,7 +89,7 @@ protected:
 	 * 				 but in the mean time (while waiting for the producing thread to get interrupted),
 	 * 				 the producing thread could call this callback function!
 	 */
-	void run(boost::function<Product ()> producer);
+	void run(std::function<Product ()> producer);
 
 	/**
 	 * Stop the producer process, if running, and block until it is terminated.
@@ -101,12 +101,12 @@ private:
 	class ProducerThread
 	{
 	public:
-		ProducerThread(Assembly<Product> &assembly, boost::function<Product ()> producerfunction);
+		ProducerThread(Assembly<Product> &assembly, std::function<Product ()> producerfunction);
 
 		void operator()();
 	private:
 		Assembly<Product> &_assembly;
-		boost::function<Product ()> _producerfunction;
+		std::function<Product ()> _producerfunction;
 	};
 
 	Assembly<Product> _products;

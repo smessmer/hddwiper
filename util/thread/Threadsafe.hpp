@@ -3,7 +3,7 @@
 #ifndef THREADSAFE_HPP_
 #define THREADSAFE_HPP_
 
-#include <boost/thread/mutex.hpp>
+#include <mutex>
 
 /**
  * This class can be used to make a value threadsafe.
@@ -111,7 +111,7 @@ public:
 	//TODO more functions
 private:
 	T _object;
-	mutable boost::mutex _mutex;
+	mutable std::mutex _mutex;
 };
 
 #include "impl/Threadsafe.impl.hpp"

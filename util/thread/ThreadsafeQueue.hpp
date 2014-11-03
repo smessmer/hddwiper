@@ -4,7 +4,7 @@
 #define __THREADSAFEQUEUE_HPP__
 
 #include <queue>
-#include <boost/thread/mutex.hpp>
+#include <mutex>
 
 /**
  * This class is a threadsafe queue.
@@ -51,7 +51,7 @@ public:
 	unsigned int size() const;
 private:
 	std::queue<T> _queue;
-	mutable boost::mutex _mutex;
+	mutable std::mutex _mutex;
 };
 
 #include "impl/ThreadsafeQueue.impl.hpp"

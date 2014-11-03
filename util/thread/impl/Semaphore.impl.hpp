@@ -5,7 +5,7 @@ inline Semaphore::Semaphore(int value)
 
 inline void Semaphore::wait()
 {
-	boost::unique_lock<boost::mutex> lock(_mutex);
+	std::unique_lock<std::mutex> lock(_mutex);
 
 	--_value;
 
@@ -15,7 +15,7 @@ inline void Semaphore::wait()
 
 inline void Semaphore::release()
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 
 	++_value;
 

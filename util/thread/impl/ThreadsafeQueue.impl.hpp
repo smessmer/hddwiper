@@ -7,7 +7,7 @@ inline ThreadsafeQueue<T>::ThreadsafeQueue()
 template<class T>
 inline void ThreadsafeQueue<T>::push(const T &object)
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 
 	_queue.push(object);
 }
@@ -15,7 +15,7 @@ inline void ThreadsafeQueue<T>::push(const T &object)
 template<class T>
 inline const T ThreadsafeQueue<T>::pop()
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 
 	const T result=_queue.front();
 	_queue.pop();
@@ -25,7 +25,7 @@ inline const T ThreadsafeQueue<T>::pop()
 template<class T>
 inline const T ThreadsafeQueue<T>::top()
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 
 	return _queue.front();
 }
@@ -33,7 +33,7 @@ inline const T ThreadsafeQueue<T>::top()
 template<class T>
 inline bool ThreadsafeQueue<T>::empty() const
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 
 	return _queue.empty();
 }
@@ -41,7 +41,7 @@ inline bool ThreadsafeQueue<T>::empty() const
 template<class T>
 inline unsigned int ThreadsafeQueue<T>::size() const
 {
-	boost::lock_guard<boost::mutex> lock(_mutex);
+	std::lock_guard<std::mutex> lock(_mutex);
 
 	return _queue.size();
 }

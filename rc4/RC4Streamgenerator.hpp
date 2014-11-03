@@ -3,7 +3,7 @@
 #ifndef __RC4STREAMGENERATOR_HPP__
 #define __RC4STREAMGENERATOR_HPP__
 
-#include <boost/function.hpp>
+#include <functional>
 #include <openssl/rc4.h>
 
 #include "util/data/Data.hpp"

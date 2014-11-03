@@ -1,5 +1,7 @@
+#include <mutex>
+
 template<class Product>
-inline Producer<Product>::ProducerThread::ProducerThread(Assembly<Product> &assembly, boost::function<Product ()> producerfunction)
+inline Producer<Product>::ProducerThread::ProducerThread(Assembly<Product> &assembly, std::function<Product ()> producerfunction)
 	:_assembly(assembly), _producerfunction(producerfunction)
 {
 }
@@ -21,7 +23,7 @@ void Producer<Product>::ProducerThread::operator()()
 
 template<class Product>
 inline Producer<Product>::Producer(
-		const unsigned int buffersize, boost::function<Product ()> producer) :
+		const unsigned int buffersize, std::function<Product ()> producer) :
 	_products(buffersize), _producer(ProducerThread(_products,producer)),_initialized(true)
 {
 }
@@ -34,7 +36,7 @@ inline Producer<Product>::Producer(
 }
 
 template<class Product>
-inline void Producer<Product>::run(boost::function<Product ()> producer)
+inline void Producer<Product>::run(std::function<Product ()> producer)
 {
 	if(_initialized)
 		throw std::logic_error("Producer already initialized. You can't call run() twice.");

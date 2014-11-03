@@ -3,7 +3,7 @@
 #ifndef __KERNELENTROPY_HPP__
 #define __KERNELENTROPY_HPP__
 
-#include <boost/function.hpp>
+#include <functional>
 
 #include "util/data/Data.hpp"
 #include "util/DummyCallback.hpp"
@@ -28,7 +28,7 @@ public:
 	 * 		The callback function has one parameter, which is the number of already read bytes.
 	 * 		This parameter is optional.
 	 */
-	static const Data getEntropy(const unsigned int size, boost::function<void(
+	static const Data getEntropy(const unsigned int size, std::function<void(
 			unsigned int)> callback = DummyCallback());
 };
 
