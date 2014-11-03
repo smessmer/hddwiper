@@ -79,8 +79,6 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-	cout << options.blocksize << "\n";
-
 	if (vm.count("help") or !vm.count("output")) {
 	    cout << desc << "\n";
 	    return 1;
