@@ -3,8 +3,7 @@
 
 #include <string>
 #include <boost/thread.hpp>
-
-#include "rc4/RC4StreamProducerAutoseed.hpp"
+#include <randomstream/RandomStreamProducerAutoseed.hpp>
 #include "file/OutputFile.hpp"
 #include "util/thread/Threadsafe.hpp"
 
@@ -46,7 +45,7 @@ private:
 		WipingThread &operator=(const WipingThread &rhs);
 
 		HDDWiper &_wiper;
-		std::tr1::shared_ptr<RC4StreamProducerAutoseed> _generator;
+		std::tr1::shared_ptr<RandomStreamProducerAutoseed> _generator;
 		Threadsafe<double> _currentspeed;
 		Threadsafe<bool> _is_running;
 	};

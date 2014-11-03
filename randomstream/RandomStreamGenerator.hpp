@@ -1,7 +1,7 @@
 #pragma once
 
-#ifndef __RC4STREAMGENERATOR_HPP__
-#define __RC4STREAMGENERATOR_HPP__
+#ifndef __RANDOMSTREAMGENERATOR_HPP__
+#define __RANDOMSTREAMGENERATOR_HPP__
 
 #include <functional>
 #include <crypto++/cryptlib.h>
@@ -10,29 +10,29 @@
 #include "util/data/Data.hpp"
 
 /**
- * This class is able to generate a RC4 stream.
+ * This class is able to generate a random stream.
  *
  * @author Sebastian Meßmer
  */
-class RC4Streamgenerator
+class RandomStreamGenerator
 {
 public:
 	/**
-	 * Create a new RC4 stream generator and seed it
+	 * Create a new random stream generator and seed it
 	 *
 	 * @param blocksize The amount of random data that is fetched at once from the stream
 	 * @param seed
-	 * 		The seeding value (key) for the RC4 algorithm.
+	 * 		The seeding value (key) for the random stream algorithm.
      *  	The length should fit the return value of SeedSize().
 	 */
-	RC4Streamgenerator(const unsigned int blocksize, const Data &seed);
+	RandomStreamGenerator(const unsigned int blocksize, const Data &seed);
 
 	/**
-	 * Create a new RC4 stream generator but don't seed it
+	 * Create a new random stream generator but don't seed it
 	 *
 	 * @param blocksize The amount of random data that is fetched at once from the stream
 	 */
-	RC4Streamgenerator(const unsigned int blocksize);
+	RandomStreamGenerator(const unsigned int blocksize);
 
 	/**
 	 * Return the next block of random data
@@ -49,7 +49,7 @@ public:
 	/**
 	 * Restart the stream generator with the given seed (key)
 	 * @param seeddata
-	 * 		The seeding value (key) for the RC4 algorithm.
+	 * 		The seeding value (key) for the random stream algorithm.
      *  	The length should fit the return value of SeedSize().
 	 */
 	void reseed(const Data &seeddata);
@@ -63,6 +63,6 @@ private:
 	std::unique_ptr<CryptoPP::SymmetricCipher> _cipher;
 };
 
-#include "impl/RC4Streamgenerator.impl.hpp"
+#include <randomstream/impl/RandomStreamGenerator.impl.hpp>
 
 #endif

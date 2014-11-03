@@ -1,13 +1,13 @@
 #pragma once
 
-#ifndef RC4STREAMPRODUCERAUTOSEED_HPP_
-#define RC4STREAMPRODUCERAUTOSEED_HPP_
+#ifndef RANDOMSTREAMPRODUCERAUTOSEED_HPP_
+#define RANDOMSTREAMPRODUCERAUTOSEED_HPP_
 
-#include "RC4StreamProducer.hpp"
+#include <randomstream/RandomStreamProducer.hpp>
 #include "kernelentropy/KernelEntropyProducer.hpp"
 
 /**
- * This class is able to produce a RC4 stream in another thread
+ * This class is able to produce a random stream in another thread
  * (used the producer/consumer pattern) and make it available
  * to the current thread.
  * This class is automatically seeding itself from kernel entropy.
@@ -15,13 +15,13 @@
  *
  * @author Sebastian Meßmer
  */
-class RC4StreamProducerAutoseed: public RC4StreamProducer
+class RandomStreamProducerAutoseed: public RandomStreamProducer
 {
 public:
 	/**
-	 * Create a new RC4 stream producer and run it.
+	 * Create a new random stream producer and run it.
 	 * It will immediately seed itself, start another thread and
-	 * generate RC4 random data.
+	 * generate random random data.
 	 *
 	 * @param buffersize
 	 * 		The number of blocks to store in buffer.
@@ -32,13 +32,13 @@ public:
 	 * 		The number of bytes one block of random data contains.
 	 *
 	 */
-	RC4StreamProducerAutoseed(const unsigned int buffersize,
+	RandomStreamProducerAutoseed(const unsigned int buffersize,
 			const unsigned int blocksize, const unsigned int blocks_per_seed);
 
 	/**
 	 * Destructor
 	 */
-	virtual ~RC4StreamProducerAutoseed();
+	virtual ~RandomStreamProducerAutoseed();
 
 	/**
 	 * Return the current available count of seed blocks,
@@ -67,6 +67,6 @@ private:
 	virtual void BeforeProduce();
 };
 
-#include "impl/RC4StreamProducerAutoseed.impl.hpp"
+#include <randomstream/impl/RandomStreamProducerAutoseed.impl.hpp>
 
-#endif /* RC4STREAMPRODUCERWITHRESEEDING_HPP_ */
+#endif /* RANDOMSTREAMPRODUCERAUTOSEED_HPP_ */

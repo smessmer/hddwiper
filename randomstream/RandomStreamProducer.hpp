@@ -1,28 +1,28 @@
 #pragma once
 
-#ifndef RC4STREAMPRODUCER_HPP_
-#define RC4STREAMPRODUCER_HPP_
+#ifndef RANDOMSTREAMPRODUCER_HPP_
+#define RANDOMSTREAMPRODUCER_HPP_
 
 #include "producer/Producer.hpp"
-#include "RC4Streamgenerator.hpp"
 #include "util/data/Data.hpp"
 
 #include <boost/thread.hpp>
+#include <randomstream/RandomStreamGenerator.hpp>
 
 /**
- * This class is able to produce a RC4 stream in another thread
+ * This class is able to produce a random stream in another thread
  * (used the producer/consumer pattern) and make it available
  * to the current thread.
  *
  * @author Sebastian Meßmer
  */
-class RC4StreamProducer: public Producer<Data>
+class RandomStreamProducer: public Producer<Data>
 {
 public:
 	/**
-	 * Create a new RC4 stream producer and run it.
+	 * Create a new random stream producer and run it.
 	 * It will immediately start another thread and
-	 * generate RC4 random data.
+	 * generate random data.
 	 *
 	 * @param buffersize
 	 * 		The number of blocks to store in buffer.
@@ -31,23 +31,23 @@ public:
 	 *		data is fetched.
 	 * @param blocksize
 	 * 		The number of bytes one block of random data contains.
-	 * @param seed The seed (also called key or init vector) for the RC4 algorithm
+	 * @param seed The seed (also called key or init vector) for the random stream algorithm
 	 *
 	 */
-	RC4StreamProducer(const unsigned int buffersize,
+	RandomStreamProducer(const unsigned int buffersize,
 			const unsigned int blocksize, const Data &seed);
 
 	/**
 	 * Destructor
 	 */
-	virtual ~RC4StreamProducer();
+	virtual ~RandomStreamProducer();
 
 protected:
 
 	/**
-	 * Create a new RC4 stream producer and run it.
+	 * Create a new random stream producer and run it.
 	 * When you use this constructor, you have to
-	 * overwrite BeforeProduce() and seed the RC4StreamProducer
+	 * overwrite BeforeProduce() and seed the RandomStreamProducer
 	 * by a call to reseed() at the first call of BeforeProduce().
 	 *
 	 * @param buffersize
@@ -59,10 +59,10 @@ protected:
 	 * 		The number of bytes one block of random data contains.
 	 *
 	 */
-	RC4StreamProducer(const unsigned int buffersize, unsigned int blocksize);
+	RandomStreamProducer(const unsigned int buffersize, unsigned int blocksize);
 
 	/**
-	 * Restarts the RC4 stream generator with a new seed.
+	 * Restarts the random stream generator with a new seed.
 	 * This function should only be called out of the producing thread,
 	 * this means out of OnProduced()
 	 *
@@ -81,9 +81,9 @@ protected:
 private:
 	const Data _generate();
 
-	RC4Streamgenerator _generator;
+	RandomStreamGenerator _generator;
 };
 
-#include "impl/RC4StreamProducer.impl.hpp"
+#include <randomstream/impl/RandomStreamProducer.impl.hpp>
 
-#endif /* RC4STREAMPRODUCER_HPP_ */
+#endif /* RANDOMSTREAMPRODUCER_HPP_ */

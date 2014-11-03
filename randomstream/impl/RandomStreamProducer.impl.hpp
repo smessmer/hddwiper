@@ -1,42 +1,42 @@
-inline RC4StreamProducer::RC4StreamProducer(
+inline RandomStreamProducer::RandomStreamProducer(
 		const unsigned int buffersize, const unsigned int blocksize, const Data &seed) :
 	Producer<Data>(buffersize),_generator(blocksize,seed)
 {
-	Producer<Data>::run(std::bind(&RC4StreamProducer::_generate,this));
+	Producer<Data>::run(std::bind(&RandomStreamProducer::_generate,this));
 }
 
-inline RC4StreamProducer::RC4StreamProducer(
+inline RandomStreamProducer::RandomStreamProducer(
 		const unsigned int buffersize, const unsigned int blocksize) :
 	Producer<Data>(buffersize),_generator(blocksize)
 {
-	Producer<Data>::run(std::bind(&RC4StreamProducer::_generate,this));
+	Producer<Data>::run(std::bind(&RandomStreamProducer::_generate,this));
 }
 
-inline RC4StreamProducer::~RC4StreamProducer()
+inline RandomStreamProducer::~RandomStreamProducer()
 {
 	//The producer thread started by Producer<T> has a callback function
-	//calling a function in RC4StreamProducer.
+	//calling a function in RandomStreamProducer.
 	//Producer<T>::~Producer waits for this thread to stop, but
-	//while waiting the RC4StreamProducer object is already
+	//while waiting the RandomStreamProducer object is already
 	//destroyed, so the callback function will call a function of
 	//a destroyed object => not so good.
 	//So be sure that the producer thread is stopped, before
-	//RC4StreamProducer is destroyed.
+	//RandomStreamProducer is destroyed.
 	stop();
 }
 
-inline const Data RC4StreamProducer::_generate()
+inline const Data RandomStreamProducer::_generate()
 {
 	BeforeProduce();
 	return _generator.getRandomBytes();
 }
 
-inline void RC4StreamProducer::reseed(const Data &seed)
+inline void RandomStreamProducer::reseed(const Data &seed)
 {
 	_generator.reseed(seed);
 }
 
-inline void RC4StreamProducer::BeforeProduce()
+inline void RandomStreamProducer::BeforeProduce()
 {
 	//Intentionally blank
 }

@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
 
 //HDDTester
 /*
-#include "rc4/RC4StreamProducer.hpp"
+#include "randomstream/RandomStreamProducer.hpp"
 #include "kernelentropy/KernelEntropyProducer.hpp"
 #include "file/OutputFile.hpp"
 #include "file/InputFile.hpp"
@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
 		   cout << "Couldn't write full entropy to disk" << endl;
    }
    cout << "\rSeeding...finished"<<endl;
-   RC4StreamProducer generator(3,100*1024*1024,entropy);
+   RandomStreamProducer generator(3,100*1024*1024,entropy);
    //Write
    int lastblock_written;
    unsigned long long int sum_written;
@@ -152,7 +152,7 @@ int main(int argc, char *argv[])
    //Check
    int lastblock_read;
    unsigned long long int sum_read;
-   RC4StreamProducer generator2(3,100*1024*1024,entropy);
+   RandomStreamProducer generator2(3,100*1024*1024,entropy);
    {
      InputFile in(argv[1]);
      Data read(100*1024*1024);

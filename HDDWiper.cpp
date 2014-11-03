@@ -4,7 +4,7 @@
 
 void HDDWiper::WipingThread::operator()()
 {
-	_generator=std::tr1::shared_ptr<RC4StreamProducerAutoseed>(new RC4StreamProducerAutoseed(_wiper.getBuffersize(),_wiper.getBlocksize(),_wiper.getBlocksPerSeed()));
+	_generator=std::tr1::shared_ptr<RandomStreamProducerAutoseed>(new RandomStreamProducerAutoseed(_wiper.getBuffersize(),_wiper.getBlocksize(),_wiper.getBlocksPerSeed()));
 	double newspeed=0;
 	while(_is_running)
 	{
