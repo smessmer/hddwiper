@@ -49,11 +49,11 @@ public:
 	unsigned int available_seed() const;
 
 	/**
-	 * Return the current number of bytes that are received for creating the current seed block.
+	 * Return the progress percentage for creating the current seed block.
 	 *
-	 * @return The current number of bytes that are received for creating the current seed block.
+	 * @return A number x with 0.0<=x<=1.0
 	 */
-	unsigned int seeding_status() const;
+	double seeding_status() const;
 
 private:
 

@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
 	    ("skip,s", po::value<string>()->default_value("0"), "Number of bytes to skip at the start of the output file.\nYou can either give the amount in bytes or use one of the postfixes K,M,G,T, when you want to use the corresponding power of 1024.\nYou can use floating point values (for example 3.4K).")
 	    ("blocksize,b", po::value<string>()->default_value("100M"), "Size of the random blocks that are generated, stored in memory, and in one rush written to the disk. For the allowed option syntax see the skip option (example: --blocksize=10.2M)")
 	    ("buffersize,u", po::value<unsigned int>(&options.buffersize)->default_value(5), "Maximum number of random blocks (see --blocksize for the size of the blocks) to produce beforehand and keep in memory (Hard disk is usually slower than the random generator)")
-		("blocks_per_seed,z", po::value<unsigned int>(&options.blocks_per_seed)->default_value(25), "Number of random blocks to create with the same seed")
+		("blocks_per_seed,z", po::value<unsigned int>(&options.blocks_per_seed)->default_value(50), "Number of random blocks to create with the same seed")
 	;
 
 	//Positional options (output file)
@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
 			 << "\tSpeed: " << setw(7) << wiper.getCurrentSpeed() << " MB/s"
 			 << "\tSeedbuffer: " << setw(3) << wiper.getSeedBufferSize()
 			 << "\tRandombuffer: " << setw(3) << wiper.getBufferSize()
-			 << "\tSeeding: "<< setw(3) << wiper.getSeedingStatus()
+			 << "\tSeeding: "<< setw(3) << static_cast<int>(std::round(100*wiper.getSeedingStatus())) << "%"
 			 << flush;
 		boost::this_thread::sleep(boost::posix_time::seconds(1));
 	}

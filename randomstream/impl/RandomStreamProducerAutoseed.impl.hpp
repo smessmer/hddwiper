@@ -9,9 +9,9 @@ inline unsigned int RandomStreamProducerAutoseed::available_seed() const
 	return _entropyproducer.available_count();
 }
 
-inline unsigned int RandomStreamProducerAutoseed::seeding_status() const
+inline double RandomStreamProducerAutoseed::seeding_status() const
 {
-	return _entropyproducer.seeding_status();
+	return static_cast<double>(_entropyproducer.seeding_status())/RandomStreamGenerator::SeedSize();
 }
 
 inline void RandomStreamProducerAutoseed::BeforeProduce()

@@ -16,11 +16,12 @@ inline RandomStreamGenerator::RandomStreamGenerator(const unsigned int blocksize
 inline void RandomStreamGenerator::reseed(const Data &seeddata)
 {
 	//Split the seed data into key (first part) and IV (second part)
+	constexpr unsigned int KEYLENGTH = CryptoPP::Sosemanuk::MAX_KEYLENGTH;
 	assert(seeddata.size() == SeedSize());
 	const unsigned char *key = seeddata.get();
-	const unsigned char *iv = seeddata.get() + CryptoPP::Sosemanuk::MAX_KEYLENGTH;
+	const unsigned char *iv = seeddata.get() + KEYLENGTH;
 
-    _cipher = std::make_unique<CryptoPP::Sosemanuk::Encryption>(key, CryptoPP::Sosemanuk::MAX_KEYLENGTH, iv);
+    _cipher = std::make_unique<CryptoPP::Sosemanuk::Encryption>(key, KEYLENGTH, iv);
 }
 
 inline const Data RandomStreamGenerator::getRandomBytes()

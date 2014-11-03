@@ -21,7 +21,7 @@ public:
 	unsigned int getSeedBufferSize() const;
 	unsigned int getBlocksPerSeed() const;
 
-	unsigned int getSeedingStatus() const;
+	double getSeedingStatus() const;
 
 	bool isRunning() const;
 
@@ -38,7 +38,7 @@ private:
 		unsigned int getBufferSize() const;
 		unsigned int getSeedBufferSize() const;
 		double getCurrentSpeed() const;
-		unsigned int getSeedingStatus() const;
+		double getSeedingStatus() const;
 		bool isRunning() const;
 	private:
 		WipingThread(const WipingThread &rhs);
@@ -131,7 +131,7 @@ inline unsigned int HDDWiper::getSeedBufferSize() const
 	return _wipingthread.getSeedBufferSize();
 }
 
-inline unsigned int HDDWiper::getSeedingStatus() const
+inline double HDDWiper::getSeedingStatus() const
 {
 	return _wipingthread.getSeedingStatus();
 }
@@ -146,7 +146,7 @@ inline bool HDDWiper::WipingThread::isRunning() const
 	return _is_running;
 }
 
-inline unsigned int HDDWiper::WipingThread::getSeedingStatus() const
+inline double HDDWiper::WipingThread::getSeedingStatus() const
 {
 	if(_generator==NULL)
 		return 0;
