@@ -10,3 +10,6 @@ build/%.o: %.cpp
 	mkdir -p $(dir $@)
 	g++ $(CC_FLAGS) -c -o $@ $<
 
+clean:
+	rm -rf build
+	rm hddwiper
