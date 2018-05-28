@@ -12,4 +12,4 @@ build/%.o: %.cpp
 
 clean:
 	rm -rf build
-	rm hddwiper
+	rm -f hddwiper
