@@ -41,15 +41,15 @@ inline void RandomStreamGenerator::getRandomBytes(Data &data)
 	if (nullptr == _cipher)
 		throw std::logic_error("Not seeded yet");
 
-    // Get Sosemanuk data
+  // Get Sosemanuk data
 	_cipher->ProcessData(data.get(), _zeroes.get(), _zeroes.size());
 
 	// XOR with RDRAND data
 	if (CryptoPP::HasRDRAND()) {
-		Data rdrand_data(_zeroes.size());
+		Data rdrand_data(data.size());
 		CryptoPP::RDRAND().GenerateBlock(rdrand_data.get(), rdrand_data.size());
-		for (size_t i = 0; i < _zeroes.size(); ++i) {
-			_zeroes.get()[i] ^= rdrand_data.get()[i];
+		for (size_t i = 0; i < data.size(); ++i) {
+			data.get()[i] ^= rdrand_data.get()[i];
 		}
 	}
 }
