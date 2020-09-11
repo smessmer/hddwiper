@@ -1,5 +1,7 @@
 #include "HDDWiper.hpp"
 
+#include <thread>
+
 #include "util/Profiler.hpp"
 
 void HDDWiper::WipingThread::operator()()
@@ -7,7 +9,9 @@ void HDDWiper::WipingThread::operator()()
 	_kernel_entropy_assembly = std::make_unique<Assembly<Data>>(SEEDCOUNT);
 	_random_block_assembly = std::make_unique<Assembly<Data>>(_wiper.getBuffersize());
 	_kernel_entropy_producer = std::make_unique<KernelEntropyProducer>(_kernel_entropy_assembly.get(), RandomStreamGenerator::SeedSize());
-	_generator = std::make_unique<RandomStreamProducerAutoseed>(_random_block_assembly.get(), _wiper.getBlocksize(), _wiper.getBlocksPerSeed(), _kernel_entropy_assembly.get());
+	for (int i = 0; i < std::thread::hardware_concurrency(); ++i) {
+		_random_block_producers.push_back(std::make_unique<RandomStreamProducerAutoseed>(_random_block_assembly.get(), _wiper.getBlocksize(), _wiper.getBlocksPerSeed(), _kernel_entropy_assembly.get()));
+	}
 	double newspeed=0;
 	while(_is_running)
 	{
@@ -29,3 +33,5 @@ void HDDWiper::WipingThread::operator()()
 				/ 1024 / time.getSecondsPassed();
 	}
 }
+
+const unsigned int HDDWiper::SEEDCOUNT;

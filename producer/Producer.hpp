@@ -42,21 +42,6 @@ public:
 	 * Destructor
 	 */
 	virtual ~Producer();
-	//
-	// /**
-	//  * Get the next product from the assembly and free its space,
-	//  * so the producer can produce another one.
-	//  *
-	//  * @return The next product from the assembly
-	//  */
-	// const Product get();
-	//
-	// /**
-	//  * Return the number of products stored in the assembly.
-	//  *
-	//  * @return The number of products stored in the assembly
-	//  */
-	// unsigned int available_count() const;
 
 protected:
 	/**

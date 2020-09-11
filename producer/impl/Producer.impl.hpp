@@ -56,15 +56,3 @@ inline void Producer<Product>::stop()
 	_producer.interrupt();
 	_producer.join();
 }
-
-// template<class Product>
-// inline const Product Producer<Product>::get()
-// {
-// 	return _assembly.pop();
-// }
-//
-// template<class Product>
-// inline unsigned int Producer<Product>::available_count() const
-// {
-// 	return _assembly.size();
-// }

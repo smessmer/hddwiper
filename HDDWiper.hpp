@@ -47,7 +47,7 @@ private:
 		HDDWiper &_wiper;
 		std::unique_ptr<KernelEntropyProducer> _kernel_entropy_producer;
 		std::unique_ptr<Assembly<Data>> _kernel_entropy_assembly;
-		std::unique_ptr<RandomStreamProducerAutoseed> _generator;
+		std::vector<std::unique_ptr<RandomStreamProducerAutoseed>> _random_block_producers;
 		std::unique_ptr<Assembly<Data>> _random_block_assembly;
 		Threadsafe<double> _currentspeed;
 		Threadsafe<bool> _is_running;
@@ -71,7 +71,7 @@ private:
 
 inline HDDWiper::WipingThread::WipingThread(HDDWiper &wiper)
 	:_wiper(wiper),_kernel_entropy_assembly(), _random_block_assembly()
-	, _generator(),_currentspeed(0),_is_running(true)
+	, _random_block_producers(),_currentspeed(0),_is_running(true)
 {
 }
 
@@ -114,7 +114,7 @@ inline unsigned long long int HDDWiper::getBytesWritten() const
 
 inline unsigned int HDDWiper::WipingThread::getBufferSize() const
 {
-	if(_generator==NULL)
+	if(_random_block_producers.size() == 0)
 		return 0;
 
 	return _random_block_assembly->size();
@@ -122,7 +122,7 @@ inline unsigned int HDDWiper::WipingThread::getBufferSize() const
 
 inline unsigned int HDDWiper::WipingThread::getSeedBufferSize() const
 {
-	if(_generator==NULL)
+	if(_random_block_producers.size() == 0)
 		return 0;
 
 	return _kernel_entropy_assembly->size();
@@ -155,7 +155,7 @@ inline bool HDDWiper::WipingThread::isRunning() const
 
 inline double HDDWiper::WipingThread::getSeedingStatus() const
 {
-	if(_generator==NULL)
+	if(_random_block_producers.size() == 0)
 		return 0;
 
   return static_cast<double>(_kernel_entropy_producer->seeding_status()) / RandomStreamGenerator::SeedSize();
