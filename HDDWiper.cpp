@@ -4,7 +4,10 @@
 
 void HDDWiper::WipingThread::operator()()
 {
-	_generator=std::tr1::shared_ptr<RandomStreamProducerAutoseed>(new RandomStreamProducerAutoseed(_wiper.getBuffersize(),_wiper.getBlocksize(),_wiper.getBlocksPerSeed()));
+	_kernel_entropy_assembly = std::make_unique<Assembly<Data>>(SEEDCOUNT);
+	_random_block_assembly = std::make_unique<Assembly<Data>>(_wiper.getBuffersize());
+	_kernel_entropy_producer = std::make_unique<KernelEntropyProducer>(_kernel_entropy_assembly.get(), RandomStreamGenerator::SeedSize());
+	_generator = std::make_unique<RandomStreamProducerAutoseed>(_random_block_assembly.get(), _wiper.getBlocksize(), _wiper.getBlocksPerSeed(), _kernel_entropy_assembly.get());
 	double newspeed=0;
 	while(_is_running)
 	{
@@ -12,7 +15,7 @@ void HDDWiper::WipingThread::operator()()
 
 		//Get random data and set speed to zero while waiting. Then update the speed display to the newspeed.
 		_currentspeed=0;
-		Data randomdata=_generator->get();
+		Data randomdata=_random_block_assembly->pop();
 		_currentspeed=newspeed;
 
 		//Write random data to output

@@ -1,6 +1,6 @@
 inline KernelEntropyProducer::KernelEntropyProducer(
-		const unsigned int buffersize, const unsigned int blocksize) :
-	Producer<Data>(buffersize),_blocksize(blocksize),_seeding_status(0)
+		Assembly<Data>* seed_block_output_assembly, const unsigned int blocksize) :
+	Producer<Data>(seed_block_output_assembly),_blocksize(blocksize),_seeding_status(0)
 {
 	run(std::bind(&KernelEntropyProducer::_generate,this));
 }

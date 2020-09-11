@@ -34,7 +34,7 @@ public:
 	 * @param seed The seed (also called key or init vector) for the random stream algorithm
 	 *
 	 */
-	RandomStreamProducer(const unsigned int buffersize,
+	RandomStreamProducer(Assembly<Data>* random_block_output_assembly,
 			const unsigned int blocksize, const Data &seed);
 
 	/**
@@ -50,16 +50,13 @@ protected:
 	 * overwrite BeforeProduce() and seed the RandomStreamProducer
 	 * by a call to reseed() at the first call of BeforeProduce().
 	 *
-	 * @param buffersize
-	 * 		The number of blocks to store in buffer.
-	 *		When the buffer is full and no one fetches the data,
-	 *		the generator thread will pause, until a block of random
-	 *		data is fetched.
+	 * @param random_block_output_assembly
+	 * 		The assembly to push the produced random blocks to
 	 * @param blocksize
 	 * 		The number of bytes one block of random data contains.
 	 *
 	 */
-	RandomStreamProducer(const unsigned int buffersize, unsigned int blocksize);
+	RandomStreamProducer(Assembly<Data>* random_block_output_assembly, unsigned int blocksize);
 
 	/**
 	 * Restarts the random stream generator with a new seed.

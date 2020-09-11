@@ -1,13 +1,14 @@
 inline RandomStreamProducer::RandomStreamProducer(
-		const unsigned int buffersize, const unsigned int blocksize, const Data &seed) :
-	Producer<Data>(buffersize),_generator(blocksize,seed)
+		Assembly<Data>* random_block_output_assembly, const unsigned int blocksize, const Data &seed)
+	: Producer<Data>(random_block_output_assembly)
+	, _generator(blocksize,seed)
 {
 	Producer<Data>::run(std::bind(&RandomStreamProducer::_generate,this));
 }
 
 inline RandomStreamProducer::RandomStreamProducer(
-		const unsigned int buffersize, const unsigned int blocksize) :
-	Producer<Data>(buffersize),_generator(blocksize)
+		Assembly<Data>* random_block_output_assembly, const unsigned int blocksize) :
+	Producer<Data>(random_block_output_assembly),_generator(blocksize)
 {
 	Producer<Data>::run(std::bind(&RandomStreamProducer::_generate,this));
 }

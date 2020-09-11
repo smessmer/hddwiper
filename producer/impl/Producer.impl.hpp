@@ -1,7 +1,7 @@
 #include <mutex>
 
 template<class Product>
-inline Producer<Product>::ProducerThread::ProducerThread(Assembly<Product> &assembly, std::function<Product ()> producerfunction)
+inline Producer<Product>::ProducerThread::ProducerThread(Assembly<Product>* assembly, std::function<Product ()> producerfunction)
 	:_assembly(assembly), _producerfunction(producerfunction)
 {
 }
@@ -13,7 +13,7 @@ void Producer<Product>::ProducerThread::operator()()
 	{
 		while (true)
 		{
-			_assembly.push(_producerfunction());
+			_assembly->push(_producerfunction());
 			boost::this_thread::interruption_point();
 		}
 	} catch (boost::thread_interrupted &interruptedexception)
@@ -23,15 +23,14 @@ void Producer<Product>::ProducerThread::operator()()
 
 template<class Product>
 inline Producer<Product>::Producer(
-		const unsigned int buffersize, std::function<Product ()> producer) :
-	_products(buffersize), _producer(ProducerThread(_products,producer)),_initialized(true)
+		Assembly<Product>* assembly, std::function<Product ()> producer) :
+	_assembly(assembly), _producer(ProducerThread(_assembly,producer)),_initialized(true)
 {
 }
 
 template<class Product>
-inline Producer<Product>::Producer(
-		const unsigned int buffersize) :
-	_products(buffersize), _producer(),_initialized(false)
+inline Producer<Product>::Producer(Assembly<Product>* assembly) :
+	_assembly(assembly), _producer(),_initialized(false)
 {
 }
 
@@ -41,7 +40,7 @@ inline void Producer<Product>::run(std::function<Product ()> producer)
 	if(_initialized)
 		throw std::logic_error("Producer already initialized. You can't call run() twice.");
 
-	_producer=boost::thread(ProducerThread(_products,producer));
+	_producer=boost::thread(ProducerThread(_assembly,producer));
 	_initialized=true;
 }
 
@@ -58,14 +57,14 @@ inline void Producer<Product>::stop()
 	_producer.join();
 }
 
-template<class Product>
-inline const Product Producer<Product>::get()
-{
-	return _products.pop();
-}
-
-template<class Product>
-inline unsigned int Producer<Product>::available_count() const
-{
-	return _products.size();
-}
+// template<class Product>
+// inline const Product Producer<Product>::get()
+// {
+// 	return _assembly.pop();
+// }
+//
+// template<class Product>
+// inline unsigned int Producer<Product>::available_count() const
+// {
+// 	return _assembly.size();
+// }

@@ -32,7 +32,7 @@ public:
 	 * @param blocksize
 	 * 		The number of bytes one block of entropy data contains.
 	 */
-	KernelEntropyProducer(const unsigned int buffersize,
+	KernelEntropyProducer(Assembly<Data>* seed_block_output_assembly,
 			const unsigned int blocksize);
 
 	/**

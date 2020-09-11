@@ -32,37 +32,36 @@ public:
 	 * 		The number of bytes one block of random data contains.
 	 *
 	 */
-	RandomStreamProducerAutoseed(const unsigned int buffersize,
-			const unsigned int blocksize, const unsigned int blocks_per_seed);
+	RandomStreamProducerAutoseed(Assembly<Data>* random_block_output_assembly,
+			const unsigned int blocksize, const unsigned int blocks_per_seed,
+			Assembly<Data>* seed_block_input_assembly);
 
 	/**
 	 * Destructor
 	 */
 	virtual ~RandomStreamProducerAutoseed();
 
-	/**
-	 * Return the current available count of seed blocks,
-	 * which can be used for future reseeding.
-	 *
-	 * @return The current available count of seed blocks
-	 */
-	unsigned int available_seed() const;
-
-	/**
-	 * Return the progress percentage for creating the current seed block.
-	 *
-	 * @return A number x with 0.0<=x<=1.0
-	 */
-	double seeding_status() const;
+	// /**
+	//  * Return the current available count of seed blocks,
+	//  * which can be used for future reseeding.
+	//  *
+	//  * @return The current available count of seed blocks
+	//  */
+	// unsigned int available_seed() const;
+	//
+	// /**
+	//  * Return the progress percentage for creating the current seed block.
+	//  *
+	//  * @return A number x with 0.0<=x<=1.0
+	//  */
+	// double seeding_status() const;
 
 private:
-
-	static const unsigned int SEEDCOUNT=200;
 
 	int _blocks_per_seed;
 	int _count_until_reseed;
 
-	KernelEntropyProducer _entropyproducer;
+  Assembly<Data>* _seed_block_input_assembly;
 
 	virtual void BeforeProduce();
 };

@@ -45,10 +45,16 @@ private:
 		WipingThread &operator=(const WipingThread &rhs);
 
 		HDDWiper &_wiper;
-		std::tr1::shared_ptr<RandomStreamProducerAutoseed> _generator;
+		std::unique_ptr<KernelEntropyProducer> _kernel_entropy_producer;
+		std::unique_ptr<Assembly<Data>> _kernel_entropy_assembly;
+		std::unique_ptr<RandomStreamProducerAutoseed> _generator;
+		std::unique_ptr<Assembly<Data>> _random_block_assembly;
 		Threadsafe<double> _currentspeed;
 		Threadsafe<bool> _is_running;
 	};
+
+
+	static const unsigned int SEEDCOUNT=200;
 
 	//Size of one block of generated random data
 	unsigned long long int _blocksize;
@@ -64,7 +70,8 @@ private:
 };
 
 inline HDDWiper::WipingThread::WipingThread(HDDWiper &wiper)
-	:_wiper(wiper),_generator(),_currentspeed(0),_is_running(true)
+	:_wiper(wiper),_kernel_entropy_assembly(), _random_block_assembly()
+	, _generator(),_currentspeed(0),_is_running(true)
 {
 }
 
@@ -110,7 +117,7 @@ inline unsigned int HDDWiper::WipingThread::getBufferSize() const
 	if(_generator==NULL)
 		return 0;
 
-	return _generator->available_count();
+	return _random_block_assembly->size();
 }
 
 inline unsigned int HDDWiper::WipingThread::getSeedBufferSize() const
@@ -118,7 +125,7 @@ inline unsigned int HDDWiper::WipingThread::getSeedBufferSize() const
 	if(_generator==NULL)
 		return 0;
 
-	return _generator->available_seed();
+	return _kernel_entropy_assembly->size();
 }
 
 inline unsigned int HDDWiper::getBufferSize() const
@@ -151,7 +158,7 @@ inline double HDDWiper::WipingThread::getSeedingStatus() const
 	if(_generator==NULL)
 		return 0;
 
-	return _generator->seeding_status();
+  return static_cast<double>(_kernel_entropy_producer->seeding_status()) / RandomStreamGenerator::SeedSize();
 }
 
 #endif /* HDDWIPER_HPP_ */

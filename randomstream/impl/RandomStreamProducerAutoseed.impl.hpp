@@ -1,24 +1,29 @@
 inline RandomStreamProducerAutoseed::RandomStreamProducerAutoseed(
-		const unsigned int buffersize, const unsigned int blocksize, const unsigned int blocks_per_seed) :
-	RandomStreamProducer(buffersize,blocksize),_blocks_per_seed(blocks_per_seed),_count_until_reseed(0),_entropyproducer(SEEDCOUNT,RandomStreamGenerator::SeedSize())
+	    Assembly<Data>* random_block_output_assembly,
+			const unsigned int blocksize, const unsigned int blocks_per_seed,
+			Assembly<Data>* seed_block_input_assembly)
+	: RandomStreamProducer(random_block_output_assembly,blocksize)
+	, _blocks_per_seed(blocks_per_seed)
+	, _count_until_reseed(0)
+	, _seed_block_input_assembly(seed_block_input_assembly)
 {
 }
 
-inline unsigned int RandomStreamProducerAutoseed::available_seed() const
-{
-	return _entropyproducer.available_count();
-}
-
-inline double RandomStreamProducerAutoseed::seeding_status() const
-{
-	return static_cast<double>(_entropyproducer.seeding_status())/RandomStreamGenerator::SeedSize();
-}
+// inline unsigned int RandomStreamProducerAutoseed::available_seed() const
+// {
+// 	return _entropyproducer.available_count();
+// }
+//
+// inline double RandomStreamProducerAutoseed::seeding_status() const
+// {
+// 	return static_cast<double>(_entropyproducer.seeding_status())/RandomStreamGenerator::SeedSize();
+// }
 
 inline void RandomStreamProducerAutoseed::BeforeProduce()
 {
 	if(_count_until_reseed==0)
 	{
-		reseed(_entropyproducer.get());
+		reseed(_seed_block_input_assembly->pop());
 		_count_until_reseed=_blocks_per_seed;
 	}
 	--_count_until_reseed;
