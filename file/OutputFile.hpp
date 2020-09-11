@@ -12,7 +12,7 @@ class OutputFile: public AbstractFile
 public:
 	OutputFile(const std::string &filename);
 
-	size_t write(const Data data);
+	size_t write(const Data& data);
 
 	unsigned long long int getBytesWritten() const;
 

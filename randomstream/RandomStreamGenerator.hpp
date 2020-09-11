@@ -38,13 +38,13 @@ public:
 	 * Return the next block of random data
 	 * @return The next block of random data
 	 */
-	const Data getRandomBytes();
+	Data getRandomBytes();
 
 	/**
 	 * Write the next block of random data into the given memory
 	 * @param data The memory where to write to
 	 */
-	const void getRandomBytes(Data &data);
+	void getRandomBytes(Data &data);
 
 	/**
 	 * Restart the stream generator with the given seed (key)

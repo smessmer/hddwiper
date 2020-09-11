@@ -10,11 +10,8 @@
 /**
  * This class is part of a producer/consumer implementation.
  * An instance of this class implements a Producer.
- * The producer has its own assembly (= a queue that contains
- * the already produced products) and runs another
- * thread which fills the assembly.
- * A call to get() blocks until at least one product
- * is available and then returns it.
+ * The producer runs a thread that produces products and
+ * pushes them to a thread-safe assemly.
  *
  * @author Sebastian Meßmer
  */

@@ -52,7 +52,7 @@ private:
 	//This function is called by the producer thread to set the current seeding status
 	void _set_seedingstatus(unsigned int seedingstatus);
 	//This function is called by the producer thread to get the next block of entropy
-	const Data _generate();
+	Data _generate();
 
 	const unsigned int _blocksize;
 	Threadsafe<unsigned int> _seeding_status;

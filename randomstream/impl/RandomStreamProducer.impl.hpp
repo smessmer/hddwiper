@@ -26,7 +26,7 @@ inline RandomStreamProducer::~RandomStreamProducer()
 	stop();
 }
 
-inline const Data RandomStreamProducer::_generate()
+inline Data RandomStreamProducer::_generate()
 {
 	BeforeProduce();
 	return _generator.getRandomBytes();

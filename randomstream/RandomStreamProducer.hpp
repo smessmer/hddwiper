@@ -76,7 +76,7 @@ protected:
 	virtual void BeforeProduce();
 
 private:
-	const Data _generate();
+	Data _generate();
 
 	RandomStreamGenerator _generator;
 };

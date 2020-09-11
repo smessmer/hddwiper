@@ -25,6 +25,11 @@ public:
 	 */
 	Data(const unsigned int size);
 
+	Data(Data&&) noexcept = default;
+	Data& operator=(Data&&) noexcept = default;
+	Data(const Data&) = delete;
+	Data& operator=(const Data&) = delete;
+
 	/**
 	 * Return a pointer to the first byte of the data area.
 	 *
@@ -45,7 +50,7 @@ public:
 	 * @return The size of the allocated data area
 	 */
 	unsigned int size() const;
-	
+
 	/**
 	 * Return a subsegment of the stored data. The segment is copied.
 	 *
@@ -75,7 +80,7 @@ public:
 	 */
 	friend bool operator!=(const Data &lhs, const Data &rhs);
 private:
-	std::tr1::shared_ptr<DataBase> _data;
+	std::unique_ptr<DataBase> _data;
 };
 
 #include "impl/Data.impl.hpp"

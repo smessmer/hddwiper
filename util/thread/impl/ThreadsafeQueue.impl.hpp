@@ -5,29 +5,21 @@ inline ThreadsafeQueue<T>::ThreadsafeQueue()
 }
 
 template<class T>
-inline void ThreadsafeQueue<T>::push(const T &object)
+inline void ThreadsafeQueue<T>::push(T object)
 {
 	std::lock_guard<std::mutex> lock(_mutex);
 
-	_queue.push(object);
+	_queue.push(std::move(object));
 }
 
 template<class T>
-inline const T ThreadsafeQueue<T>::pop()
+inline T ThreadsafeQueue<T>::pop()
 {
 	std::lock_guard<std::mutex> lock(_mutex);
 
-	const T result=_queue.front();
+	T result = std::move(_queue.front());
 	_queue.pop();
 	return result;
-}
-
-template<class T>
-inline const T ThreadsafeQueue<T>::top()
-{
-	std::lock_guard<std::mutex> lock(_mutex);
-
-	return _queue.front();
 }
 
 template<class T>

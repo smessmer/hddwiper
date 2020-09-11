@@ -24,19 +24,13 @@ public:
 	 * Add an element to the back of the queue
 	 * @param data The element to be pushed
 	 */
-	void push(const T &data);
+	void push(T data);
 
 	/**
 	 * Delete the first element of the queue and return it.
 	 * @return The (old) first element of the queue
 	 */
-	const T pop();
-
-	/**
-	 * Return the first element of the queue without deleting it.
-	 * @return The first element of the queue
-	 */
-	const T top();
+	T pop();
 
 	/**
 	 * Check, if the queue is empty

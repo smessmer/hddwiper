@@ -5,7 +5,7 @@
 #include <cstdio>
 #include <stdexcept>
 
-const Data KernelEntropy::getEntropy(const unsigned int size,
+Data KernelEntropy::getEntropy(const unsigned int size,
 		std::function<void(unsigned int)> callback)
 {
 	Data result(size);

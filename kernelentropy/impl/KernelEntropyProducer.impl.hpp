@@ -15,7 +15,7 @@ inline void KernelEntropyProducer::_set_seedingstatus(unsigned int seedingstatus
 	_seeding_status=seedingstatus;
 }
 
-inline const Data KernelEntropyProducer::_generate()
+inline Data KernelEntropyProducer::_generate()
 {
 	_seeding_status=0;
 	return KernelEntropy::getEntropy(_blocksize,std::bind(&KernelEntropyProducer::_set_seedingstatus,this,std::placeholders::_1));

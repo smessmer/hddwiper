@@ -33,7 +33,7 @@ public:
 	 *
 	 * @param data The product to push into the assembly
 	 */
-	void push(const Product &data);
+	void push(Product data);
 
 	/**
 	 * Fetches an element from the assembly. If there is no finished product
@@ -42,7 +42,7 @@ public:
 	 *
 	 * @return The finished product
 	 */
-	const Product pop();
+	Product pop();
 
 	/**
 	 * Returns the number of contained products.

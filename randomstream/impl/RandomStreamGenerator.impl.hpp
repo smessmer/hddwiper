@@ -26,14 +26,14 @@ inline void RandomStreamGenerator::reseed(const Data &seeddata)
   _cipher = std::make_unique<CryptoPP::Sosemanuk::Encryption>(key, KEYLENGTH, iv);
 }
 
-inline const Data RandomStreamGenerator::getRandomBytes()
+inline Data RandomStreamGenerator::getRandomBytes()
 {
 	Data result(_zeroes.size());
 	getRandomBytes(result);
 	return result;
 }
 
-inline const void RandomStreamGenerator::getRandomBytes(Data &data)
+inline void RandomStreamGenerator::getRandomBytes(Data &data)
 {
 	if(data.size()!=_zeroes.size())
 		throw std::logic_error("Too small (or too large) memory region given for writing one block of random data");

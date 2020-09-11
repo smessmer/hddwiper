@@ -9,7 +9,7 @@ inline bool operator!=(const Data &lhs, const Data &rhs)
 }
 
 inline Data::Data(const unsigned int size) :
-	_data(new DataBase(size))
+	_data(std::make_unique<DataBase>(size))
 {
 }
 
