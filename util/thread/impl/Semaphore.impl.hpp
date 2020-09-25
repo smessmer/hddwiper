@@ -7,10 +7,9 @@ inline void Semaphore::wait()
 {
 	std::unique_lock<std::mutex> lock(_mutex);
 
-	--_value;
+	_wait.wait(lock, [&] {return _value > 0;});
 
-	if(_value<0)
-		_wait.wait(lock);
+	--_value;
 }
 
 inline void Semaphore::release()
@@ -19,6 +18,5 @@ inline void Semaphore::release()
 
 	++_value;
 
-	if(_value<=0)
-		_wait.notify_one();
+	_wait.notify_one();
 }
