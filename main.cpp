@@ -101,7 +101,7 @@ int main(int argc, char *argv[])
 		boost::this_thread::sleep(boost::posix_time::seconds(1));
 	}
 
-	cout << "\n";
+	cout << "\nfinished" << std::endl;
 
 	return 0;
 }
