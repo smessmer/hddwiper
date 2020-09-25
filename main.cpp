@@ -41,6 +41,7 @@ int main(int argc, char *argv[])
 		long long int blocksize;
 		unsigned int buffersize;
 		unsigned int blocks_per_seed;
+                bool disable_rdrand;
 	} options;
 
 	//General options
@@ -50,7 +51,8 @@ int main(int argc, char *argv[])
 	    ("skip,s", po::value<string>()->default_value("0"), "Number of bytes to skip at the start of the output file.\nYou can either give the amount in bytes or use one of the postfixes K,M,G,T, when you want to use the corresponding power of 1024.\nYou can use floating point values (for example 3.4K).")
 	    ("blocksize,b", po::value<string>()->default_value("100M"), "Size of the random blocks that are generated, stored in memory, and in one rush written to the disk. For the allowed option syntax see the skip option (example: --blocksize=10.2M)")
 	    ("buffersize,u", po::value<unsigned int>(&options.buffersize)->default_value(5), "Maximum number of random blocks (see --blocksize for the size of the blocks) to produce beforehand and keep in memory (Hard disk is usually slower than the random generator)")
-		("blocks_per_seed,z", po::value<unsigned int>(&options.blocks_per_seed)->default_value(100), "Number of random blocks to create with the same seed")
+            ("blocks_per_seed,z", po::value<unsigned int>(&options.blocks_per_seed)->default_value(100), "Number of random blocks to create with the same seed")
+            ("disable-rdrand", "Disable RDRAND generator. By default, if the CPU has RDRAND, then hddwiper uses both, a software random generator and RDRAND, and xors the streams together for better randomness. But on older CPUs, RDRAND is slow. With this option, hddwiper will only use the software generator.")
 	;
 
 	//Positional options (output file)
@@ -80,13 +82,17 @@ int main(int argc, char *argv[])
 		cerr << "Negative --blocksize value isn't allowed\n";
 		return EXIT_FAILURE;
 	}
+        options.disable_rdrand=vm.count("disable-rdrand");
+        if (options.disable_rdrand) {
+          std::cout << "Running without RDRAND" << std::endl;
+        }
 
 	if (vm.count("help") or !vm.count("output")) {
 	    cout << desc << "\n";
 	    return 1;
 	}
 
-	HDDWiper wiper(options.output,options.skip,options.blocksize,options.buffersize, options.blocks_per_seed);
+	HDDWiper wiper(options.output,options.skip,options.blocksize,options.buffersize, options.blocks_per_seed, options.disable_rdrand);
 
 	while (wiper.isRunning())
 	{

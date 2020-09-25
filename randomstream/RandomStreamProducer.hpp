@@ -35,7 +35,7 @@ public:
 	 *
 	 */
 	RandomStreamProducer(Assembly<Data>* random_block_output_assembly,
-			const unsigned int blocksize, const Data &seed);
+			const unsigned int blocksize, const Data &seed, bool disable_rdrand);
 
 	/**
 	 * Destructor
@@ -56,7 +56,7 @@ protected:
 	 * 		The number of bytes one block of random data contains.
 	 *
 	 */
-	RandomStreamProducer(Assembly<Data>* random_block_output_assembly, unsigned int blocksize);
+	RandomStreamProducer(Assembly<Data>* random_block_output_assembly, unsigned int blocksize, bool disable_rdrand);
 
 	/**
 	 * Restarts the random stream generator with a new seed.

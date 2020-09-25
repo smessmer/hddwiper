@@ -34,7 +34,7 @@ public:
 	 */
 	RandomStreamProducerAutoseed(Assembly<Data>* random_block_output_assembly,
 			const unsigned int blocksize, const unsigned int blocks_per_seed,
-			Assembly<Data>* seed_block_input_assembly);
+			Assembly<Data>* seed_block_input_assembly, bool disable_rdrand);
 
 
 	/**

@@ -2,15 +2,15 @@
 #include <cryptopp/rdrand.h>
 #include <cryptopp/cpu.h>
 #include <iostream>
-inline RandomStreamGenerator::RandomStreamGenerator(const unsigned int blocksize, const Data &seed) :
-	_zeroes(blocksize), _cipher(nullptr)
+inline RandomStreamGenerator::RandomStreamGenerator(const unsigned int blocksize, const Data &seed, bool disable_rdrand) :
+	_zeroes(blocksize), _cipher(nullptr), _disable_rdrand(disable_rdrand)
 {
 	memset(_zeroes.get(), 0, _zeroes.size());
 	reseed(seed);
 }
 
-inline RandomStreamGenerator::RandomStreamGenerator(const unsigned int blocksize) :
-	_zeroes(blocksize), _cipher()
+inline RandomStreamGenerator::RandomStreamGenerator(const unsigned int blocksize, bool disable_rdrand) :
+	_zeroes(blocksize), _cipher(), _disable_rdrand(disable_rdrand)
 {
 	memset(_zeroes.get(), 0, _zeroes.size());
 }
@@ -45,7 +45,7 @@ inline void RandomStreamGenerator::getRandomBytes(Data &data)
 	_cipher->ProcessData(data.get(), _zeroes.get(), _zeroes.size());
 
 	// XOR with RDRAND data
-	if (CryptoPP::HasRDRAND()) {
+	if (!_disable_rdrand && CryptoPP::HasRDRAND()) {
 		Data rdrand_data(data.size());
 		CryptoPP::RDRAND().GenerateBlock(rdrand_data.get(), rdrand_data.size());
 		for (size_t i = 0; i < data.size(); ++i) {

@@ -11,7 +11,7 @@ class HDDWiper
 {
 public:
 
-	HDDWiper(const std::string &filename, const unsigned long long int skip=0, const unsigned long long int blocksize=100*1024*1024, const unsigned int buffersize=5, const unsigned int blocks_per_seed=10);
+	HDDWiper(const std::string &filename, const unsigned long long int skip=0, const unsigned long long int blocksize=100*1024*1024, const unsigned int buffersize=5, const unsigned int blocks_per_seed=10, bool disable_rdrand=false);
 
 	double getCurrentSpeed() const;
 
@@ -27,6 +27,7 @@ public:
 
 	unsigned long long int getBlocksize() const;
 	unsigned int getBuffersize() const;
+	bool getRdRandIsDisabled() const;
 private:
 	class WipingThread
 	{
@@ -62,6 +63,7 @@ private:
 	unsigned int _buffersize;
 	//Number of random blocks to create with one seed
     unsigned int _blocks_per_seed;
+    bool _disable_rdrand;
 
 	OutputFile _output;
 
@@ -80,8 +82,8 @@ inline double HDDWiper::WipingThread::getCurrentSpeed() const
 	return _currentspeed;
 }
 
-inline HDDWiper::HDDWiper(const std::string &filename, const unsigned long long int skip, const unsigned long long int blocksize, const unsigned int buffersize, const unsigned int blocks_per_seed)
-	:_blocksize(blocksize),_buffersize(buffersize),_blocks_per_seed(blocks_per_seed),_output(filename),_wipingthread(*this),_wipingthread_thread(boost::ref(_wipingthread))
+inline HDDWiper::HDDWiper(const std::string &filename, const unsigned long long int skip, const unsigned long long int blocksize, const unsigned int buffersize, const unsigned int blocks_per_seed, bool disable_rdrand)
+	:_blocksize(blocksize),_buffersize(buffersize),_blocks_per_seed(blocks_per_seed),_output(filename),_wipingthread(*this),_wipingthread_thread(boost::ref(_wipingthread)),_disable_rdrand(disable_rdrand)
 {
 	if(skip>0)
 		_output.skip(skip);
@@ -95,6 +97,10 @@ inline unsigned long long int HDDWiper::getBlocksize() const
 inline unsigned int HDDWiper::getBuffersize() const
 {
 	return _buffersize;
+}
+
+inline bool HDDWiper::getRdRandIsDisabled() const {
+	return _disable_rdrand;
 }
 
 inline unsigned int HDDWiper::getBlocksPerSeed() const

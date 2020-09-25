@@ -1,8 +1,8 @@
 inline RandomStreamProducerAutoseed::RandomStreamProducerAutoseed(
 	    Assembly<Data>* random_block_output_assembly,
 			const unsigned int blocksize, const unsigned int blocks_per_seed,
-			Assembly<Data>* seed_block_input_assembly)
-	: RandomStreamProducer(random_block_output_assembly,blocksize)
+			Assembly<Data>* seed_block_input_assembly, bool disable_rdrand)
+	: RandomStreamProducer(random_block_output_assembly, blocksize, disable_rdrand)
 	, _blocks_per_seed(blocks_per_seed)
 	, _count_until_reseed(0)
 	, _seed_block_input_assembly(seed_block_input_assembly)

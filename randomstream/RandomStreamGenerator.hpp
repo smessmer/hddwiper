@@ -25,14 +25,14 @@ public:
 	 * 		The seeding value (key) for the random stream algorithm.
      *  	The length should fit the return value of SeedSize().
 	 */
-	RandomStreamGenerator(const unsigned int blocksize, const Data &seed);
+	RandomStreamGenerator(const unsigned int blocksize, const Data &seed, bool disable_rdrand);
 
 	/**
 	 * Create a new random stream generator but don't seed it
 	 *
 	 * @param blocksize The amount of random data that is fetched at once from the stream
 	 */
-	RandomStreamGenerator(const unsigned int blocksize);
+	RandomStreamGenerator(const unsigned int blocksize, bool disable_rdrand);
 
 	/**
 	 * Return the next block of random data
@@ -61,6 +61,7 @@ public:
 private:
 	Data _zeroes;
 	std::unique_ptr<CryptoPP::SymmetricCipher> _cipher;
+        bool _disable_rdrand;
 };
 
 #include <randomstream/impl/RandomStreamGenerator.impl.hpp>
