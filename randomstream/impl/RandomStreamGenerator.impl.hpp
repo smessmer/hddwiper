@@ -2,6 +2,7 @@
 #include <cryptopp/rdrand.h>
 #include <cryptopp/cpu.h>
 #include <iostream>
+#include <cassert>
 inline RandomStreamGenerator::RandomStreamGenerator(const unsigned int blocksize, const Data &seed, bool disable_rdrand) :
 	_zeroes(blocksize), _cipher(nullptr), _disable_rdrand(disable_rdrand)
 {
