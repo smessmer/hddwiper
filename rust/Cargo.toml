@@ -1,0 +1,20 @@
+[package]
+name = "hddwiper"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "^1.0.57"
+flume = "^0.10.12"
+async-trait = "^0.1.53"
+rand = "^0.8.5"
+rand_hc = "^0.3.1"
+rdrand = "^0.8.2"
+zeroize = "^1.5.4"
+rand_chacha = "^0.3.1"
+tokio = {version = "^1.17.0", features = ["macros", "rt-multi-thread"]}
+
+[dev-dependencies]
+hex = "^0.4.3"
