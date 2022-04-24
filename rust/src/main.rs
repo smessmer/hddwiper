@@ -17,7 +17,7 @@ const NUM_RANDOM_BUFFER_BLOCKS: usize = 5;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let seed_producer = byte_stream_producer::new_byte_stream_producer(
+    let seed_producer = byte_stream_producer::new_byte_stream_thread_pool_producer(
         SEED_GENERATOR_BLOCK_SIZE,
         NUM_SEED_BUFFER_BLOCKS,
         NUM_SEED_WORKERS,
@@ -28,11 +28,11 @@ async fn main() -> Result<()> {
         .map(|v| v.get())
         .unwrap_or(2);
 
-    let random_producer = byte_stream_producer::new_byte_stream_producer(
+    let random_producer = byte_stream_producer::new_byte_stream_thread_pool_producer(
         RANDOM_GENERATOR_BLOCK_SIZE,
         NUM_RANDOM_BUFFER_BLOCKS,
         num_random_workers,
-        || random::secure_rng(byte_stream::byte_stream_from_consumer(seed_producer.make_consumer())),
+        || random::secure_rng(byte_stream::byte_stream_from_producer(seed_producer.make_consumer())),
     )?;
 
     Ok(())

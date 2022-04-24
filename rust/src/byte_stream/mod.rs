@@ -51,5 +51,5 @@ mod block_source;
 pub use block_source::{SyncBlockSource, AsyncBlockSource};
 mod block_source_byte_stream;
 pub use block_source_byte_stream::BlockSourceByteStream;
-mod consumer_byte_stream;
-pub use consumer_byte_stream::byte_stream_from_consumer;
+mod producer_byte_stream;
+pub use producer_byte_stream::byte_stream_from_producer;

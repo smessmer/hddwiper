@@ -5,15 +5,16 @@ use std::thread::{self, JoinHandle};
 
 use crate::cancellation_token::CancellationToken;
 
-// We use this trait instead of returning ProductImpl directly so that we can hide the `F` generic parameter
+/// A [Producer] produces products that can be received via one or multiple [ProductReceiver]s.
 pub trait Producer<T> {
     /// Create a new consumer receiving products from this producer.
     /// There can be multiple consumers and the products will be split
     /// among them, i.e. different consumers get different products.
-    fn make_consumer(&self) -> Consumer<T>;
+    fn make_consumer(&self) -> ProductReceiver<T>;
 }
 
-pub fn new_producer<T, F>(
+/// Creates a [Producer] for products of type `T` that are produced on a thread pool with `num_workers` threads.
+pub fn new_thread_pool_producer<T, F>(
     num_workers: usize,
     product_buffer_size: usize,
     make_produce_fn: impl Fn() -> Result<F>,
@@ -22,10 +23,10 @@ where
     T: 'static + Send,
     F: 'static + Send + FnMut() -> Result<T>,
 {
-    ProducerImpl::new(num_workers, product_buffer_size, make_produce_fn)
+    ThreadPoolProducer::new(num_workers, product_buffer_size, make_produce_fn)
 }
 
-struct ProducerImpl<T, F>
+struct ThreadPoolProducer<T, F>
 where
     T: 'static + Send,
     F: 'static + Send + FnMut() -> Result<T>,
@@ -36,7 +37,7 @@ where
     _f: PhantomData<F>,
 }
 
-impl<T, F> ProducerImpl<T, F>
+impl<T, F> ThreadPoolProducer<T, F>
 where
     T: 'static + Send,
     F: 'static + Send + FnMut() -> Result<T>,
@@ -66,19 +67,19 @@ where
     }
 }
 
-impl<T, F> Producer<T> for ProducerImpl<T, F>
+impl<T, F> Producer<T> for ThreadPoolProducer<T, F>
 where
     T: 'static + Send,
     F: 'static + Send + FnMut() -> Result<T>,
 {
-    fn make_consumer(&self) -> Consumer<T> {
-        Consumer {
+    fn make_consumer(&self) -> ProductReceiver<T> {
+        ProductReceiver {
             receiver: self.receiver.clone(),
         }
     }
 }
 
-impl<T, F> Drop for ProducerImpl<T, F>
+impl<T, F> Drop for ThreadPoolProducer<T, F>
 where
     T: 'static + Send,
     F: Send + FnMut() -> Result<T>,
@@ -137,11 +138,11 @@ impl Worker {
     }
 }
 
-pub struct Consumer<T> {
+pub struct ProductReceiver<T> {
     receiver: Receiver<T>,
 }
 
-impl<T> Consumer<T> {
+impl<T> ProductReceiver<T> {
     pub async fn async_get_product(&self) -> Result<T> {
         let product = self.receiver.recv_async().await;
         Ok(product?)
