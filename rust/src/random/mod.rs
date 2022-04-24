@@ -1,33 +1,34 @@
 use anyhow::Result;
-use rand::rngs::{adapter::ReseedingRng, OsRng};
-use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha20Core;
-use rand_hc::Hc128Core;
 
 mod composite;
+mod os;
 mod rdrand;
-mod xchacha;
+mod reseeding;
+mod xsalsa20;
 
-use xchacha::XChaCha20Rng;
+use crate::byte_stream::SyncByteStream;
+use reseeding::ReseedingRandomGenerator;
 
-pub fn secure_rng() -> Result<impl Rng + Clone> {
-    // XOR together a couple different random generators.
-    // This is not strictly necessary since most of those generators
-    // should be secure by itself, but xoring it with others never hurts
-    // for additional security. XORing a good random generator with
-    // a bad one yields a random generator that is at least as good
-    // as the good one.
-    // This approach of xoring together increases the demand on
-    // hardware entropy (all of those random generators have to be seeded),
-    // so we shouldn't seed too often
+pub use xsalsa20::XSalsa20Rng;
 
-    const RESEED_THRESHOLD: u64 = 1024 * 1024 * 1024;
+pub fn secure_seed_rng() -> Result<impl SyncByteStream + Clone> {
+    // XOR rdseed and os_rng. So even if RDSEED isn't supported on the platform,
+    // os_rng still provides entropy.
+    let rdseed = rdrand::RdSeedGenerator::new_if_supported();
+    let os_rng = os::OsRandomGenerator;
+    Ok(crate::composite_rng!(os_rng, rdseed))
+}
 
-    let rdrand = rdrand::rdrand_or_zeroes();
+pub fn secure_rng(seed_source: impl SyncByteStream + Send) -> Result<impl SyncByteStream> {
+    // XOR rdrand and xsalsa20. So even if RDRAND isn't supported on the platform,
+    // xsalsa20 still provides entropy.
+
+    const RESEED_EVERY_N_BYTES: usize = 1024 * 1024 * 1024;
+
+    let rdrand = rdrand::RdRandGenerator::new_if_supported();
     // Using both chacha20 and xchacha20 because xchacha20 is our own implementation and in case it's buggy, we also xor in a third party chacha20 implementation
-    let chacha = ReseedingRng::new(ChaCha20Core::from_rng(OsRng)?, RESEED_THRESHOLD, OsRng);
-    let xchacha = ReseedingRng::new(XChaCha20Rng::from_rng(OsRng)?, RESEED_THRESHOLD, OsRng);
-    let hc = ReseedingRng::new(Hc128Core::from_rng(OsRng)?, RESEED_THRESHOLD, OsRng);
+    let xsalsa20 =
+        ReseedingRandomGenerator::<XSalsa20Rng, _>::new(RESEED_EVERY_N_BYTES, seed_source);
 
-    Ok(crate::composite_rng!(rdrand, chacha, xchacha, hc))
+    Ok(crate::composite_rng!(rdrand, xsalsa20))
 }

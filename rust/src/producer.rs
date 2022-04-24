@@ -1,5 +1,4 @@
 use anyhow::Result;
-use async_trait::async_trait;
 use flume::{Receiver, Sender};
 use std::marker::PhantomData;
 use std::thread::{self, JoinHandle};
@@ -7,27 +6,29 @@ use std::thread::{self, JoinHandle};
 use crate::cancellation_token::CancellationToken;
 
 // We use this trait instead of returning ProductImpl directly so that we can hide the `F` generic parameter
-#[async_trait]
 pub trait Producer<T> {
-    async fn get_product(&self) -> Result<T>;
+    /// Create a new consumer receiving products from this producer.
+    /// There can be multiple consumers and the products will be split
+    /// among them, i.e. different consumers get different products.
+    fn make_consumer(&self) -> Consumer<T>;
 }
 
 pub fn new_producer<T, F>(
     num_workers: usize,
     product_buffer_size: usize,
-    produce_fn: F,
-) -> impl Producer<T>
+    make_produce_fn: impl Fn() -> Result<F>,
+) -> Result<impl Producer<T>>
 where
     T: 'static + Send,
-    F: 'static + Send + Sync + Clone + FnMut() -> Result<T>,
+    F: 'static + Send + FnMut() -> Result<T>,
 {
-    ProducerImpl::new(num_workers, product_buffer_size, produce_fn)
+    ProducerImpl::new(num_workers, product_buffer_size, make_produce_fn)
 }
 
 struct ProducerImpl<T, F>
 where
     T: 'static + Send,
-    F: 'static + Send + Clone + FnMut() -> Result<T>,
+    F: 'static + Send + FnMut() -> Result<T>,
 {
     receiver: Receiver<T>,
     workers: Vec<Worker>,
@@ -38,45 +39,49 @@ where
 impl<T, F> ProducerImpl<T, F>
 where
     T: 'static + Send,
-    F: 'static + Send + Sync + Clone + FnMut() -> Result<T>,
+    F: 'static + Send + FnMut() -> Result<T>,
 {
-    pub fn new(num_workers: usize, product_buffer_size: usize, produce_fn: F) -> Self {
+    pub fn new(
+        num_workers: usize,
+        product_buffer_size: usize,
+        make_produce_fn: impl Fn() -> Result<F>,
+    ) -> Result<Self> {
         let (sender, receiver) = flume::bounded(product_buffer_size);
         let cancellation_token = CancellationToken::new();
-        let workers = (0..num_workers)
+        let workers: Vec<Worker> = (0..num_workers)
             .map(|_| {
-                Worker::new(
+                Ok(Worker::new(
                     sender.clone(),
-                    produce_fn.clone(),
+                    make_produce_fn()?,
                     cancellation_token.clone(),
-                )
+                ))
             })
-            .collect();
-        Self {
+            .collect::<Result<_>>()?;
+        Ok(Self {
             receiver,
             workers,
             cancellation_token,
             _f: PhantomData,
-        }
+        })
     }
 }
 
-#[async_trait]
 impl<T, F> Producer<T> for ProducerImpl<T, F>
 where
     T: 'static + Send,
-    F: 'static + Send + Sync + Clone + FnMut() -> Result<T>,
+    F: 'static + Send + FnMut() -> Result<T>,
 {
-    async fn get_product(&self) -> Result<T> {
-        let product = self.receiver.recv_async().await;
-        Ok(product?)
+    fn make_consumer(&self) -> Consumer<T> {
+        Consumer {
+            receiver: self.receiver.clone(),
+        }
     }
 }
 
 impl<T, F> Drop for ProducerImpl<T, F>
 where
     T: 'static + Send,
-    F: Send + Clone + FnMut() -> Result<T>,
+    F: Send + FnMut() -> Result<T>,
 {
     fn drop(&mut self) {
         // First, set threads to cancel after they deliver their next product
@@ -115,7 +120,7 @@ impl Worker {
     ) -> Self
     where
         T: 'static + Send,
-        F: 'static + Send + Clone + FnMut() -> Result<T>,
+        F: 'static + Send + FnMut() -> Result<T>,
     {
         let join_handle = thread::spawn(move || {
             while !cancellation_token.cancelled() {
@@ -129,5 +134,21 @@ impl Worker {
 
     pub fn is_finished(&self) -> bool {
         self.join_handle.is_finished()
+    }
+}
+
+pub struct Consumer<T> {
+    receiver: Receiver<T>,
+}
+
+impl<T> Consumer<T> {
+    pub async fn async_get_product(&self) -> Result<T> {
+        let product = self.receiver.recv_async().await;
+        Ok(product?)
+    }
+
+    pub fn blocking_get_product(&self) -> Result<T> {
+        let product = self.receiver.recv();
+        Ok(product?)
     }
 }

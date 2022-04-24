@@ -8,18 +8,14 @@ anyhow = "^1.0.57"
 flume = "^0.10.12"
 async-trait = "^0.1.53"
 rand = "^0.8.5"
-rand_hc = "^0.3.1"
 rdrand = "^0.8.2"
-zeroize = "^1.5.4"
-c2-chacha = "^0.3.3"
 tokio = {version = "^1.17.0", features = ["macros", "rt-multi-thread"]}
-rand_chacha = "0.3.1"
-rand_core = "0.6.3"
-zerocopy = "0.6.1"
-hex = "^0.4.3"
+generic-array = "^0.14.5"
+salsa20 = "^0.10.2"
 
 [dev-dependencies]
-
+hex = "^0.4.3"
+futures = "^ 0.3.21"
 
 [profile.release]
 lto = "fat"
