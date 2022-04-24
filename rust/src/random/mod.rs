@@ -23,6 +23,9 @@ pub fn secure_rng(seed_source: impl SyncByteStream + Send) -> Result<impl SyncBy
     // XOR rdrand and xsalsa20. So even if RDRAND isn't supported on the platform,
     // xsalsa20 still provides entropy.
 
+    // TODO This setup means that one random generator worker thread handles both rdrand and xsalsa.
+    //      They could block each other, it might be better to offload them to separate threads.
+
     const RESEED_EVERY_N_BYTES: usize = 1024 * 1024 * 1024;
 
     let rdrand = rdrand::RdRandGenerator::new_if_supported();
