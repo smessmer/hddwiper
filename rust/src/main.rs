@@ -9,6 +9,6 @@ use producer::Producer;
 async fn main() {
     let random_producer = random_bytes_producer::new_random_bytes_producer(1024, 1024, 5).unwrap();
     loop {
-        random_producer.get_product().await.unwrap();
+        println!("{}", hex::encode(random_producer.get_product().await.unwrap()));
     }
 }
