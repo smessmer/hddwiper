@@ -143,4 +143,8 @@ impl<T> ProductReceiver<T> {
         let product = self.receiver.recv();
         Ok(product?)
     }
+
+    pub fn get_all_available_products(&self) -> Vec<T> {
+        self.receiver.drain().collect()
+    }
 }

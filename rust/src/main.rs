@@ -1,3 +1,6 @@
+#![feature(write_all_vectored)]
+#![feature(generic_associated_types)]
+
 use anyhow::Result;
 use running_average::RealTimeRunningAverage;
 use std::fs::File;
@@ -20,8 +23,6 @@ const NUM_SEED_WORKERS: usize = 1;
 
 const RANDOM_GENERATOR_BLOCK_SIZE: usize = 10 * 1024 * 1024;
 const NUM_RANDOM_BUFFER_BLOCKS: usize = 100;
-
-const WRITER_BLOCK_SIZE: usize = 100 * 1024 * 1024;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -50,11 +51,7 @@ async fn main() -> Result<()> {
     )?;
 
     let file = File::create("/home/heinzi/testfile")?;
-    let writer = BlockWriter::new(
-        byte_stream::byte_stream_from_producer(random_producer.make_receiver()),
-        WRITER_BLOCK_SIZE,
-        file,
-    );
+    let writer = BlockWriter::new(random_producer.make_receiver(), file);
 
     let mut written_bytes = 0;
     let mut speed_calculator = RealTimeRunningAverage::default();

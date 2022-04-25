@@ -67,7 +67,6 @@ impl<B: AsyncBlockSource + Send> AsyncByteStream for BlockSourceByteStream<B> {
         Ok(())
     }
 }
-
 struct Buffer {
     buffer: VecDeque<Vec<u8>>,
 
@@ -122,7 +121,9 @@ impl Buffer {
             }
             &mut dest[copy_num_bytes..]
         } else {
-            panic!("Buffer is empty. Can't happen since we asserted above that there's enough space.");
+            panic!(
+                "Buffer is empty. Can't happen since we asserted above that there's enough space."
+            );
         }
     }
 
@@ -134,8 +135,12 @@ impl Buffer {
 impl Drop for Buffer {
     fn drop(&mut self) {
         // Check the buffer_size invariant. If it's correct now, it probably was correct all the time.
-        let actual_buffer_size: usize = self.buffer.iter().map(|b| b.len()).sum::<usize>() - self.current_pos as usize;
-        assert_eq!(self.buffer_size, actual_buffer_size, "Miscalculated self.buffer_size");
+        let actual_buffer_size: usize =
+            self.buffer.iter().map(|b| b.len()).sum::<usize>() - self.current_pos as usize;
+        assert_eq!(
+            self.buffer_size, actual_buffer_size,
+            "Miscalculated self.buffer_size"
+        );
     }
 }
 
