@@ -33,7 +33,10 @@ where
         num_workers: usize,
         product_buffer_size: usize,
         make_produce_fn: impl Fn() -> Result<F>,
-    ) -> Result<Self> where F: 'static + Send + FnMut() -> Result<T>,{
+    ) -> Result<Self>
+    where
+        F: 'static + Send + FnMut() -> Result<T>,
+    {
         let (sender, receiver) = flume::bounded(product_buffer_size);
         let cancellation_token = CancellationToken::new();
         let workers: Vec<Worker> = (0..num_workers)

@@ -1,26 +1,27 @@
 use anyhow::Result;
-use std::fs::File;
-use std::time::Duration;
-use std::io::{self, Write};
 use running_average::RealTimeRunningAverage;
+use std::fs::File;
+use std::io::{self, Write};
+use std::time::Duration;
 
+mod block_writer;
 mod byte_stream;
 mod byte_stream_producer;
 mod cancellation_token;
 mod producer;
 mod random;
-mod block_writer;
 
-use producer::Producer;
 use block_writer::BlockWriter;
-use byte_stream::ProductBlockSource;
+use producer::Producer;
 
 const SEED_GENERATOR_BLOCK_SIZE: usize = 256;
 const NUM_SEED_BUFFER_BLOCKS: usize = 256;
 const NUM_SEED_WORKERS: usize = 1;
 
-const RANDOM_GENERATOR_BLOCK_SIZE: usize = 100 * 1024 * 1024;
-const NUM_RANDOM_BUFFER_BLOCKS: usize = 5;
+const RANDOM_GENERATOR_BLOCK_SIZE: usize = 10 * 1024 * 1024;
+const NUM_RANDOM_BUFFER_BLOCKS: usize = 100;
+
+const WRITER_BLOCK_SIZE: usize = 100 * 1024 * 1024;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -41,11 +42,19 @@ async fn main() -> Result<()> {
         RANDOM_GENERATOR_BLOCK_SIZE,
         NUM_RANDOM_BUFFER_BLOCKS,
         num_random_workers,
-        || random::secure_rng(byte_stream::byte_stream_from_producer(seed_producer.make_receiver())),
+        || {
+            random::secure_rng(byte_stream::byte_stream_from_producer(
+                seed_producer.make_receiver(),
+            ))
+        },
     )?;
 
     let file = File::create("/home/heinzi/testfile")?;
-    let writer = BlockWriter::new(ProductBlockSource::new(random_producer.make_receiver()), file);
+    let writer = BlockWriter::new(
+        byte_stream::byte_stream_from_producer(random_producer.make_receiver()),
+        WRITER_BLOCK_SIZE,
+        file,
+    );
 
     let mut written_bytes = 0;
     let mut speed_calculator = RealTimeRunningAverage::default();

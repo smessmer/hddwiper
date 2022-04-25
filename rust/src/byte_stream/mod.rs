@@ -48,8 +48,8 @@ pub mod testutils {
 }
 
 mod block_source;
-pub use block_source::{SyncBlockSource, AsyncBlockSource};
+pub use block_source::{AsyncBlockSource, SyncBlockSource};
 mod block_source_byte_stream;
 pub use block_source_byte_stream::BlockSourceByteStream;
 mod producer_byte_stream;
-pub use producer_byte_stream::{ProductBlockSource, byte_stream_from_producer};
+pub use producer_byte_stream::{byte_stream_from_producer, ProductBlockSource};

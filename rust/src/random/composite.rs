@@ -13,7 +13,9 @@ impl<Rng1: SyncByteStream + Send, Rng2: SyncByteStream + Send> CompositeRng<Rng1
     }
 }
 
-impl<Rng1: SyncByteStream + Send, Rng2: SyncByteStream + Send> SyncByteStream for CompositeRng<Rng1, Rng2> {
+impl<Rng1: SyncByteStream + Send, Rng2: SyncByteStream + Send> SyncByteStream
+    for CompositeRng<Rng1, Rng2>
+{
     fn blocking_read(&mut self, dest: &mut [u8]) -> Result<()> {
         let mut rng1_data = vec![0; dest.len()];
         self.rng1.blocking_read(&mut rng1_data)?;

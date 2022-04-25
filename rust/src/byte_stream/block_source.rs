@@ -13,7 +13,7 @@ pub trait AsyncBlockSource {
 #[cfg(test)]
 pub mod testutils {
     use super::*;
-    use crate::byte_stream::{testutils::FakeByteStream, SyncByteStream, AsyncByteStream};
+    use crate::byte_stream::{testutils::FakeByteStream, AsyncByteStream, SyncByteStream};
 
     /// A block source that just outputs weak PRNG data
     pub struct FakeBlockSource {
