@@ -27,10 +27,12 @@ impl<G: SeedableRandomGenerator + Send, S: SyncByteStream + Send> ReseedingRando
     }
 
     fn _reseed(&mut self) -> Result<()> {
+        log::debug!("Reseeding...");
         let mut new_seed = GenericArray::default();
         self.seed_source.blocking_read(&mut new_seed)?;
         self.generator = Some(G::from_seed(new_seed));
         self.bytes_until_reseed = self.reseed_every_n_bytes;
+        log::debug!("Reseeding...finished");
         Ok(())
     }
 
@@ -62,9 +64,12 @@ impl<G: SeedableRandomGenerator + Send, S: SyncByteStream + Send> SyncByteStream
     fn blocking_read(&mut self, mut dest: &mut [u8]) -> Result<()> {
         while dest.len() > self.bytes_until_reseed {
             // Read as much as we can before reseed
-            self._read_without_reseed(&mut dest[..self.bytes_until_reseed])?;
-            // Now only try to read into the rest of dest
-            dest = &mut dest[self.bytes_until_reseed..];
+            if self.bytes_until_reseed > 0 {
+                self._read_without_reseed(&mut dest[..self.bytes_until_reseed])?;
+
+                // Now only try to read into the rest of dest
+                dest = &mut dest[self.bytes_until_reseed..];
+            }
 
             self._reseed()?;
             // self._reseed also reset self.bytes_until_reseed, so we can go into the next loop iteration.

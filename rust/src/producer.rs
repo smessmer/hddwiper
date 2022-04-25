@@ -1,6 +1,5 @@
 use anyhow::Result;
 use flume::{Receiver, Sender};
-use std::marker::PhantomData;
 use std::thread::{self, JoinHandle};
 
 use crate::cancellation_token::CancellationToken;
@@ -10,43 +9,31 @@ pub trait Producer<T> {
     /// Create a new consumer receiving products from this producer.
     /// There can be multiple consumers and the products will be split
     /// among them, i.e. different consumers get different products.
-    fn make_consumer(&self) -> ProductReceiver<T>;
+    fn make_receiver(&self) -> ProductReceiver<T>;
+
+    /// Returns how many products are currently ready and waiting to be received.
+    fn num_products_in_buffer(&self) -> usize;
 }
 
-/// Creates a [Producer] for products of type `T` that are produced on a thread pool with `num_workers` threads.
-pub fn new_thread_pool_producer<T, F>(
-    num_workers: usize,
-    product_buffer_size: usize,
-    make_produce_fn: impl Fn() -> Result<F>,
-) -> Result<impl Producer<T>>
+/// A [Producer] for products of type `T` that are produced on a thread pool
+pub struct ThreadPoolProducer<T>
 where
     T: 'static + Send,
-    F: 'static + Send + FnMut() -> Result<T>,
-{
-    ThreadPoolProducer::new(num_workers, product_buffer_size, make_produce_fn)
-}
-
-struct ThreadPoolProducer<T, F>
-where
-    T: 'static + Send,
-    F: 'static + Send + FnMut() -> Result<T>,
 {
     receiver: Receiver<T>,
     workers: Vec<Worker>,
     cancellation_token: CancellationToken,
-    _f: PhantomData<F>,
 }
 
-impl<T, F> ThreadPoolProducer<T, F>
+impl<T> ThreadPoolProducer<T>
 where
     T: 'static + Send,
-    F: 'static + Send + FnMut() -> Result<T>,
 {
-    pub fn new(
+    pub fn new<F>(
         num_workers: usize,
         product_buffer_size: usize,
         make_produce_fn: impl Fn() -> Result<F>,
-    ) -> Result<Self> {
+    ) -> Result<Self> where F: 'static + Send + FnMut() -> Result<T>,{
         let (sender, receiver) = flume::bounded(product_buffer_size);
         let cancellation_token = CancellationToken::new();
         let workers: Vec<Worker> = (0..num_workers)
@@ -62,27 +49,28 @@ where
             receiver,
             workers,
             cancellation_token,
-            _f: PhantomData,
         })
     }
 }
 
-impl<T, F> Producer<T> for ThreadPoolProducer<T, F>
+impl<T> Producer<T> for ThreadPoolProducer<T>
 where
     T: 'static + Send,
-    F: 'static + Send + FnMut() -> Result<T>,
 {
-    fn make_consumer(&self) -> ProductReceiver<T> {
+    fn make_receiver(&self) -> ProductReceiver<T> {
         ProductReceiver {
             receiver: self.receiver.clone(),
         }
     }
+
+    fn num_products_in_buffer(&self) -> usize {
+        self.receiver.len()
+    }
 }
 
-impl<T, F> Drop for ThreadPoolProducer<T, F>
+impl<T> Drop for ThreadPoolProducer<T>
 where
     T: 'static + Send,
-    F: Send + FnMut() -> Result<T>,
 {
     fn drop(&mut self) {
         // First, set threads to cancel after they deliver their next product

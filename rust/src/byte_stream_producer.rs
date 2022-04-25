@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::byte_stream::SyncByteStream;
-use crate::producer::{new_thread_pool_producer, Producer};
+use crate::producer::{Producer, ThreadPoolProducer};
 
 pub fn new_byte_stream_thread_pool_producer<S: 'static + SyncByteStream + Send>(
     block_size: usize,
@@ -9,7 +9,7 @@ pub fn new_byte_stream_thread_pool_producer<S: 'static + SyncByteStream + Send>(
     num_workers: usize,
     make_byte_stream: impl Fn() -> Result<S>,
 ) -> Result<impl Producer<Vec<u8>>> {
-    new_thread_pool_producer(num_workers, buffer_num_blocks, move || {
+    ThreadPoolProducer::new(num_workers, buffer_num_blocks, move || {
         let mut byte_stream = make_byte_stream()?;
         Ok(move || {
             // TODO Can we avoid the zero initialization of the buffer?
