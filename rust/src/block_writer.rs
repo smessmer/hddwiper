@@ -37,17 +37,20 @@ impl BlockWriter {
 
 fn _launch_worker_thread(mut block_source: impl 'static + SyncBlockSource + Send, mut writer: impl 'static + Write + Send, num_bytes_written: Arc<AtomicU64>) -> JoinHandle<()> {
     thread::spawn(move || {
-        // TODO Test that crashes bubble up correctly
-        // TODO use timeout instead of blocking indefinitely so that we can cancel faster
-        let product = block_source.blocking_read().unwrap();
-        let write_result = writer.write_all(&product) ;
-        if let Err(err) = &write_result {
-            if err.kind() == ErrorKind::UnexpectedEof {
-                return;
-            } else {
-                write_result.unwrap();
+        loop {
+            // TODO Test that crashes bubble up correctly
+            // TODO use timeout instead of blocking indefinitely so that we can cancel faster
+            let product = block_source.blocking_read().unwrap();
+            let write_result = writer.write_all(&product) ;
+            if let Err(err) = &write_result {
+                if err.kind() == ErrorKind::UnexpectedEof {
+                    log::debug!("Encountered EOF");
+                    return;
+                } else {
+                    write_result.unwrap();
+                }
             }
+            num_bytes_written.fetch_add(product.len() as u64, Ordering::Relaxed);
         }
-        num_bytes_written.fetch_add(product.len() as u64, Ordering::Relaxed);
     })
 }

@@ -14,6 +14,7 @@ generic-array = "^0.14.5"
 salsa20 = "^0.10.2"
 log = "^0.4.16"
 env_logger = "^0.9.0"
+running-average = "0.1.0"
 
 [dev-dependencies]
 hex = "^0.4.3"
