@@ -17,7 +17,7 @@ impl BlockWriter {
     /// Launch a new thread that writes blocks from `block_source` into `writer` until the `writer` is EOF
     /// or the [BlockWriter] gets cancelled
     pub fn new(
-        block_source: ProductReceiver<Vec<u8>>,
+        block_source: impl 'static + ProductReceiver<Vec<u8>> + Send,
         writer: impl 'static + Write + Send,
     ) -> Self {
         let num_bytes_written = Arc::new(0.into());
@@ -43,7 +43,7 @@ impl BlockWriter {
 }
 
 fn _launch_worker_thread(
-    block_source: ProductReceiver<Vec<u8>>,
+    block_source: impl 'static + ProductReceiver<Vec<u8>> + Send,
     mut writer: impl 'static + Write + Send,
     num_bytes_written: Arc<AtomicU64>,
 ) -> JoinHandle<()> {
@@ -52,10 +52,8 @@ fn _launch_worker_thread(
             log::debug!("Getting blocks...");
             // TODO Test that crashes bubble up correctly
             let blocks = block_source.get_all_available_products();
-            let mut io_slices: Vec<IoSlice> = (&blocks)
-                .iter()
-                .map(|block| IoSlice::new(block))
-                .collect();
+            let mut io_slices: Vec<IoSlice> =
+                (&blocks).iter().map(|block| IoSlice::new(block)).collect();
             log::debug!("Getting blocks...writing block...");
             let write_result = writer.write_all_vectored(&mut io_slices);
             if let Err(err) = &write_result {

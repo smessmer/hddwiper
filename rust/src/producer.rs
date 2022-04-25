@@ -1,4 +1,5 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use flume::{Receiver, Sender};
 use std::thread::{self, JoinHandle};
 
@@ -6,13 +7,13 @@ use crate::cancellation_token::CancellationToken;
 
 /// A [Producer] produces products that can be received via one or multiple [ProductReceiver]s.
 pub trait Producer<T> {
+    // TODO These type bounds here wouldn't be necessary if we just restrict all call sites to them
+    type Receiver: ProductReceiver<T> + 'static + Send + Sync;
+
     /// Create a new consumer receiving products from this producer.
     /// There can be multiple consumers and the products will be split
     /// among them, i.e. different consumers get different products.
-    fn make_receiver(&self) -> ProductReceiver<T>;
-
-    /// Returns how many products are currently ready and waiting to be received.
-    fn num_products_in_buffer(&self) -> usize;
+    fn make_receiver(&self) -> Self::Receiver;
 }
 
 /// A [Producer] for products of type `T` that are produced on a thread pool
@@ -60,14 +61,12 @@ impl<T> Producer<T> for ThreadPoolProducer<T>
 where
     T: 'static + Send,
 {
-    fn make_receiver(&self) -> ProductReceiver<T> {
-        ProductReceiver {
+    type Receiver = ThreadPoolProductReceiver<T>;
+
+    fn make_receiver(&self) -> ThreadPoolProductReceiver<T> {
+        ThreadPoolProductReceiver {
             receiver: self.receiver.clone(),
         }
-    }
-
-    fn num_products_in_buffer(&self) -> usize {
-        self.receiver.len()
     }
 }
 
@@ -87,9 +86,8 @@ where
             }
 
             // Remove all workers that already terminated
-            self.workers.retain(|join_handle| {
-                !join_handle.is_finished()
-            });
+            self.workers
+                .retain(|join_handle| !join_handle.is_finished());
         }
     }
 }
@@ -123,22 +121,41 @@ impl Worker {
     }
 }
 
-pub struct ProductReceiver<T> {
+#[async_trait]
+pub trait ProductReceiver<T> {
+    async fn async_get_product(&self) -> Result<T>;
+    fn blocking_get_product(&self) -> Result<T>;
+    fn get_all_available_products(&self) -> Vec<T>;
+    fn try_get_product(&self) -> Result<T>;
+    fn num_products_in_buffer(&self) -> usize;
+}
+
+pub struct ThreadPoolProductReceiver<T: Send> {
     receiver: Receiver<T>,
 }
 
-impl<T> ProductReceiver<T> {
-    pub async fn async_get_product(&self) -> Result<T> {
+#[async_trait]
+impl<T: Send> ProductReceiver<T> for ThreadPoolProductReceiver<T> {
+    async fn async_get_product(&self) -> Result<T> {
         let product = self.receiver.recv_async().await;
         Ok(product?)
     }
 
-    pub fn blocking_get_product(&self) -> Result<T> {
+    fn blocking_get_product(&self) -> Result<T> {
         let product = self.receiver.recv();
         Ok(product?)
     }
 
-    pub fn get_all_available_products(&self) -> Vec<T> {
+    fn try_get_product(&self) -> Result<T> {
+        let product = self.receiver.try_recv()?;
+        Ok(product)
+    }
+
+    fn get_all_available_products(&self) -> Vec<T> {
         self.receiver.drain().collect()
+    }
+
+    fn num_products_in_buffer(&self) -> usize {
+        self.receiver.len()
     }
 }

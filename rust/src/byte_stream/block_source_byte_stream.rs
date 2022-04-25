@@ -110,7 +110,10 @@ impl Buffer {
 
         if let Some(front) = self.buffer.front() {
             let bytes_available = &front[self.current_pos..];
-            assert!(!bytes_available.is_empty(), "Miscalculated self.current_pos");
+            assert!(
+                !bytes_available.is_empty(),
+                "Miscalculated self.current_pos"
+            );
             let copy_num_bytes = bytes_available.len().min(dest.len());
             dest[..copy_num_bytes].copy_from_slice(&bytes_available[..copy_num_bytes]);
             self.current_pos += copy_num_bytes;
