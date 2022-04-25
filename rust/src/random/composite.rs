@@ -35,9 +35,9 @@ fn _apply_xor(dest: &mut [u8], source: &[u8]) {
 #[macro_export]
 macro_rules! composite_rng {
     ($rng1:expr, $rng2:expr) => {
-        crate::random::composite::CompositeRng::new($rng1, $rng2)
+        $crate::random::composite::CompositeRng::new($rng1, $rng2)
     };
     ($rng1:expr, $rng2:expr, $($tail:expr),+) => {
-        crate::random::composite::CompositeRng::new($rng1, crate::composite_rng!($rng2, $($tail),+))
+        $crate::random::composite::CompositeRng::new($rng1, $crate::composite_rng!($rng2, $($tail),+))
     };
 }

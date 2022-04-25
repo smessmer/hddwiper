@@ -93,7 +93,7 @@ impl Buffer {
 
     pub fn pop(&mut self, mut dest: &mut [u8]) -> Result<()> {
         ensure!(self.buffer_size >= dest.len(), "Not enough bytes in buffer");
-        while dest.len() > 0 {
+        while !dest.is_empty() {
             dest = self._fill_from_first(dest);
         }
         Ok(())
@@ -106,11 +106,11 @@ impl Buffer {
     // from the buffer.
     fn _fill_from_first<'a>(&mut self, dest: &'a mut [u8]) -> &'a mut [u8] {
         assert!(self.buffer_size >= dest.len(), "Not enough bytes in buffer");
-        assert!(dest.len() > 0, "Precondition violated");
+        assert!(!dest.is_empty(), "Precondition violated");
 
         if let Some(front) = self.buffer.front() {
             let bytes_available = &front[self.current_pos..];
-            assert!(bytes_available.len() > 0, "Miscalculated self.current_pos");
+            assert!(!bytes_available.is_empty(), "Miscalculated self.current_pos");
             let copy_num_bytes = bytes_available.len().min(dest.len());
             dest[..copy_num_bytes].copy_from_slice(&bytes_available[..copy_num_bytes]);
             self.current_pos += copy_num_bytes;

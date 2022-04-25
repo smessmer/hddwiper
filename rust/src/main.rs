@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
         SEED_GENERATOR_BLOCK_SIZE,
         NUM_SEED_BUFFER_BLOCKS,
         NUM_SEED_WORKERS,
-        || random::secure_seed_rng(),
+        random::secure_seed_rng,
     )?;
 
     let num_random_workers = std::thread::available_parallelism()
@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
         let current_speed_mb_s = speed_calculator.measurement().rate() / ((1024 * 1024) as f64);
         let num_seed_blocks = seed_producer.num_products_in_buffer();
         let num_random_blocks = random_producer.num_products_in_buffer();
-        println!("\rWritten: {written_gb:.2} GB\tSpeed: {current_speed_mb_s:.2} MB/s\tSeedbuffer: {num_seed_blocks:.2}\tRandombuffer: {num_random_blocks:.2}");
+        print!("\rWritten: {written_gb:.2} GB\tSpeed: {current_speed_mb_s:.2} MB/s\tSeedbuffer: {num_seed_blocks:.2}\tRandombuffer: {num_random_blocks:.2}");
         io::stdout().flush()?;
 
         std::thread::sleep(Duration::from_secs(1));

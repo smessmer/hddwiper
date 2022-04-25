@@ -88,13 +88,7 @@ where
 
             // Remove all workers that already terminated
             self.workers.retain(|join_handle| {
-                if join_handle.is_finished() {
-                    // This thread is finished, remove it from the list
-                    true
-                } else {
-                    // Keep it in the list
-                    false
-                }
+                !join_handle.is_finished()
             });
         }
     }
