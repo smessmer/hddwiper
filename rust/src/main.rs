@@ -1,5 +1,6 @@
 #![feature(write_all_vectored)]
 #![feature(generic_associated_types)]
+#![feature(io_error_more)]
 
 use anyhow::Result;
 use running_average::RealTimeRunningAverage;
@@ -63,7 +64,7 @@ async fn main() -> Result<()> {
 
     let random_producer = CompositeXorProducer::new(random_producer_rdrand, random_producer_xsalsa);
 
-    let file = File::create("/home/heinzi/testfile")?;
+    let file = File::create("/dev/nvme0n1p3")?;
     let writer = BlockWriter::new(random_producer.make_receiver(), file);
 
     let mut written_bytes = 0;
@@ -84,7 +85,7 @@ async fn main() -> Result<()> {
         std::thread::sleep(Duration::from_secs(1));
     }
 
-    println!("Finished");
+    println!("\nFinished");
 
     writer.join();
 

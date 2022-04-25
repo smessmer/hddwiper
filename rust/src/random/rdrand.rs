@@ -16,6 +16,7 @@ impl RdRandGenerator {
     /// we only use it in an xor composite with other random generators.
     pub fn new_if_supported() -> SyncByteStreamOrZeroes<Self> {
         match RdRand::new() {
+            // TODO Returning new_zeroes from Ok(rdrand) somehow crashes the app with a sigkill (if run in release mode)
             Ok(rdrand) => SyncByteStreamOrZeroes::new_stream(Self { rdrand }),
             Err(err) => {
                 println!("Warning: Not able to use RDRAND random generator. Generated keys might be less random. Error message: {}", err);

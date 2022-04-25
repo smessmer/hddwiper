@@ -57,8 +57,7 @@ fn _launch_worker_thread(
             log::debug!("Getting blocks...writing block...");
             let write_result = writer.write_all_vectored(&mut io_slices);
             if let Err(err) = &write_result {
-                if err.kind() == ErrorKind::UnexpectedEof {
-                    log::debug!("Encountered EOF");
+                if err.kind() == ErrorKind::StorageFull {
                     return;
                 } else {
                     write_result.unwrap();
