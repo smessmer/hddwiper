@@ -48,19 +48,19 @@ async fn main() -> Result<()> {
     let writer = BlockWriter::new(ProductBlockSource::new(random_producer.make_receiver()), file);
 
     let mut written_bytes = 0;
-    let mut speed = RealTimeRunningAverage::default();
+    let mut speed_calculator = RealTimeRunningAverage::default();
     while !writer.is_finished() {
         let new_written_bytes = writer.num_bytes_written();
-        speed.insert((new_written_bytes - written_bytes) as f64);
+        speed_calculator.insert((new_written_bytes - written_bytes) as f64);
         written_bytes = new_written_bytes;
 
         let written_gb = (new_written_bytes as f64) / ((1024 * 1024 * 1024) as f64);
-        let current_speed_mb_s = speed.measurement().rate() / ((1024 * 1024) as f64);
+        let current_speed_mb_s = speed_calculator.measurement().rate() / ((1024 * 1024) as f64);
         let num_seed_blocks = seed_producer.num_products_in_buffer();
         let num_random_blocks = random_producer.num_products_in_buffer();
         println!("\rWritten: {written_gb:.2} GB\tSpeed: {current_speed_mb_s:.2} MB/s\tSeedbuffer: {num_seed_blocks:.2}\tRandombuffer: {num_random_blocks:.2}");
         io::stdout().flush()?;
-        
+
         std::thread::sleep(Duration::from_secs(1));
     }
 
