@@ -26,9 +26,6 @@ const SEED_GENERATOR_BLOCK_SIZE: usize = 256;
 const NUM_SEED_BUFFER_BLOCKS: usize = 256;
 const NUM_SEED_WORKERS: usize = 1;
 
-const RANDOM_GENERATOR_BLOCK_SIZE: usize = 10 * 1024 * 1024;
-const NUM_RANDOM_BUFFER_BLOCKS: usize = 100;
-
 /// Output a random stream of bytes to a hard drive or partition to wipe it.
 /// This will continue wiping until the device runs out of space.
 #[derive(Parser, Debug)]
@@ -43,6 +40,22 @@ struct Args {
     /// You can use floating point values (for example 3.4K).
     #[clap(short, long, default_value_t = String::from("0"))]
     skip_bytes: String,
+
+    /// Size of the random blocks that are generated, stored in memory, and in one 
+    /// go written to the disk. For the allowed option syntax see the skip option 
+    /// (example: --blocksize=10.2M)
+    /// Warning: With high blocksize, the amount of RAM required goes up. This can
+    /// cause the program to be killed.
+    #[clap(short, long, default_value_t = String::from("10M"))]
+    blocksize: String,
+
+    /// Maximum number of random blocks (see --blocksize for the size of the blocks) 
+    /// to produce beforehand and keep in memory (Hard disk is usually slower than the 
+    /// random generator).
+    /// Warning: With high buffersize, the amount of RAM required goes up. This can
+    /// cause the program to be killed.
+    #[clap(short = 'u', long, default_value_t = 100)]
+    buffersize: u64,
 
     /// The file or device to write the random bytes to
     output_file: String,
@@ -65,9 +78,11 @@ async fn main() -> Result<()> {
         .map(|v| v.get())
         .unwrap_or(2);
 
+    let random_generator_block_size = parse_num_bytes(&args.blocksize)?;
+
     let random_producer_xsalsa = byte_stream_producer::new_byte_stream_thread_pool_producer(
-        RANDOM_GENERATOR_BLOCK_SIZE,
-        NUM_RANDOM_BUFFER_BLOCKS,
+        random_generator_block_size as usize,
+        args.buffersize as usize,
         num_random_workers,
         || {
             Ok(random::rng_xsalsa(byte_stream::byte_stream_from_producer(
@@ -77,12 +92,18 @@ async fn main() -> Result<()> {
     )?;
     let monitor_xsalsa = random_producer_xsalsa.make_receiver();
     let random_producer_rdrand = byte_stream_producer::new_byte_stream_thread_pool_producer(
-        RANDOM_GENERATOR_BLOCK_SIZE,
-        NUM_RANDOM_BUFFER_BLOCKS,
+        random_generator_block_size as usize,
+        args.buffersize as usize,
         num_random_workers,
         || Ok(random::rng_rdrand_or_zeroes()),
     )?;
     let monitor_rdrand = random_producer_rdrand.make_receiver();
+
+    // TODO The current approach requires a buffer for both, the xsalsa and the rdrand producer,
+    // while actually we could just xor them and only keep the result, halving our memory requirement.
+    // Maybe it's a better idea to not use this CompositeXorProducer abstraction, but instead just use
+    // one producer that produces the whole stream, but internally its workers split work into two
+    // threads, one for xsalsa and one for rdrand.
 
     let random_producer = CompositeXorProducer::new(random_producer_rdrand, random_producer_xsalsa);
 
