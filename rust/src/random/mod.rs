@@ -9,6 +9,7 @@ mod xsalsa20;
 use crate::byte_stream::SyncByteStream;
 use reseeding::ReseedingRandomGenerator;
 
+pub use self::rdrand::SyncByteStreamOrZeroes;
 pub use xsalsa20::XSalsa20Rng;
 
 pub fn secure_seed_rng() -> Result<impl SyncByteStream + Clone> {
@@ -24,6 +25,10 @@ pub fn rng_xsalsa(seed_source: impl SyncByteStream + Send) -> impl SyncByteStrea
     ReseedingRandomGenerator::<XSalsa20Rng, _>::new(RESEED_EVERY_N_BYTES, seed_source)
 }
 
-pub fn rng_rdrand_or_zeroes() -> impl SyncByteStream {
+pub fn rng_rdrand_or_zeroes() -> SyncByteStreamOrZeroes<rdrand::RdRandGenerator> {
     rdrand::RdRandGenerator::new_if_supported()
+}
+
+pub fn rng_zeroes() -> SyncByteStreamOrZeroes<rdrand::RdRandGenerator> {
+    rdrand::SyncByteStreamOrZeroes::<rdrand::RdRandGenerator>::new_zeroes()
 }

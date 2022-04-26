@@ -13,7 +13,7 @@ where
 {
     seed_monitor: M1,
     random_monitor_xsalsa: M2,
-    random_monitor_rdrand: M3,
+    random_monitor_rdrand: Option<M3>,
     writer: &'w BlockWriter,
     speed_calculator: RealTimeRunningAverage<f64>,
     written_bytes: u64,
@@ -28,7 +28,7 @@ where
     pub fn new(
         seed_monitor: M1,
         random_monitor_xsalsa: M2,
-        random_monitor_rdrand: M3,
+        random_monitor_rdrand: Option<M3>,
         writer: &'w BlockWriter,
     ) -> Self {
         Self {
@@ -52,8 +52,11 @@ where
             self.speed_calculator.measurement().rate() / ((1024 * 1024) as f64);
         let num_seed_blocks = self.seed_monitor.num_products_in_buffer();
         let num_random_blocks_xsalsa = self.random_monitor_xsalsa.num_products_in_buffer();
-        let num_random_blocks_rdrand = self.random_monitor_rdrand.num_products_in_buffer();
-        print!("\rWritten: {written_gb:.2} GB\tSpeed: {current_speed_mb_s:.2} MB/s\tSeedbuffer: {num_seed_blocks:3}\tRandombuffer(XSalsa20): {num_random_blocks_xsalsa:3}\tRandombuffer(Rdrand): {num_random_blocks_rdrand:3}");
+        print!("\rWritten: {written_gb:.2} GB\tSpeed: {current_speed_mb_s:.2} MB/s\tSeedbuffer: {num_seed_blocks:3}\tRandombuffer(XSalsa20): {num_random_blocks_xsalsa:3}");
+        if let Some(random_monitor_rdrand) = &self.random_monitor_rdrand {
+            let num_random_blocks_rdrand = random_monitor_rdrand.num_products_in_buffer();
+            print!("\tRandombuffer(Rdrand): {num_random_blocks_rdrand:3}");
+        }
         io::stdout().flush()?;
 
         Ok(())
