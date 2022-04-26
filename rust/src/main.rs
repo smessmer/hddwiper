@@ -39,6 +39,9 @@ struct Args {
     /// want to continue it.
     #[clap(short, long, default_value_t = 0)]
     skip_bytes: u64,
+
+    /// The file or device to write the random bytes to
+    output_file: String,
 }
 
 #[tokio::main]
@@ -79,7 +82,7 @@ async fn main() -> Result<()> {
 
     let random_producer = CompositeXorProducer::new(random_producer_rdrand, random_producer_xsalsa);
 
-    let mut file = File::create("~/testfile")?;
+    let mut file = File::create(args.output_file)?;
     file.seek(SeekFrom::Start(args.skip_bytes))?;
     let writer = BlockWriter::new(random_producer.make_receiver(), file);
 

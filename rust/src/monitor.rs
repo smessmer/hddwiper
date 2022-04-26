@@ -1,7 +1,6 @@
 use anyhow::Result;
 use running_average::RealTimeRunningAverage;
 use std::io::{self, Write};
-use std::time::Duration;
 
 use crate::block_writer::BlockWriter;
 use crate::producer::ProductReceiver;
