@@ -66,8 +66,7 @@ struct Args {
     output_file: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     env_logger::init();
 
     let args = Args::parse();
