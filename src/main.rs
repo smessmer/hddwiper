@@ -11,7 +11,6 @@ use std::time::Duration;
 
 mod block_writer;
 mod byte_stream;
-mod byte_stream_producer;
 mod cancellation_token;
 mod monitor;
 mod producer;
@@ -73,7 +72,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let seed_producer = byte_stream_producer::new_byte_stream_thread_pool_producer(
+    let seed_producer = byte_stream::new_byte_stream_thread_pool_producer(
         SEED_GENERATOR_BLOCK_SIZE,
         NUM_SEED_BUFFER_BLOCKS,
         NUM_SEED_WORKERS,
@@ -86,7 +85,7 @@ async fn main() -> Result<()> {
 
     let random_generator_block_size = parse_num_bytes(&args.blocksize)?;
 
-    let random_producer = byte_stream_producer::new_byte_stream_thread_pool_producer(
+    let random_producer = byte_stream::new_byte_stream_thread_pool_producer(
         random_generator_block_size as usize,
         args.buffersize as usize,
         num_random_workers,

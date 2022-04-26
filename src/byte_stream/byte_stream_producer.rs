@@ -3,6 +3,8 @@ use anyhow::Result;
 use crate::byte_stream::SyncByteStream;
 use crate::producer::{Producer, ThreadPoolProducer};
 
+
+/// Creates a [Producer] from a [ByteStream]
 pub fn new_byte_stream_thread_pool_producer<S: 'static + SyncByteStream + Send>(
     block_size: usize,
     buffer_num_blocks: usize,
