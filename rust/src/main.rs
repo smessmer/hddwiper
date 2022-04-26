@@ -2,7 +2,7 @@
 #![feature(generic_associated_types)]
 #![feature(io_error_more)]
 
-use anyhow::Result;
+use anyhow::{ensure, Result};
 use clap::Parser;
 use std::fs::File;
 use std::time::Duration;
@@ -34,11 +34,15 @@ const NUM_RANDOM_BUFFER_BLOCKS: usize = 100;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// How many bytes to skip at the beginning of the output device.
+    /// Number of bytes to skip at the start of the output file.
     /// This can be useful if a previous wipe was interrupted and you
     /// want to continue it.
-    #[clap(short, long, default_value_t = 0)]
-    skip_bytes: u64,
+    /// You can either give the amount in bytes or use one of the
+    /// suffixes K,M,G,T, when you want to use the corresponding power
+    /// of 1024.
+    /// You can use floating point values (for example 3.4K).
+    #[clap(short, long, default_value_t = String::from("0"))]
+    skip_bytes: String,
 
     /// The file or device to write the random bytes to
     output_file: String,
@@ -83,7 +87,7 @@ async fn main() -> Result<()> {
     let random_producer = CompositeXorProducer::new(random_producer_rdrand, random_producer_xsalsa);
 
     let mut file = File::create(args.output_file)?;
-    file.seek(SeekFrom::Start(args.skip_bytes))?;
+    file.seek(SeekFrom::Start(parse_num_bytes(&args.skip_bytes)?))?;
     let writer = BlockWriter::new(random_producer.make_receiver(), file);
 
     let mut monitor = Monitor::new(
@@ -104,4 +108,115 @@ async fn main() -> Result<()> {
     writer.join();
 
     Ok(())
+}
+
+fn parse_num_bytes(value: &str) -> Result<u64> {
+    ensure!(value.len() > 0, "Cannot parse empty string as a number of bytes");
+
+    const KB: f64 = 1024f64;
+    const MB: f64 = 1024f64 * 1024f64;
+    const GB: f64 = 1024f64 * 1024f64 * 1024f64;
+    const TB: f64 = 1024f64 * 1024f64 * 1024f64 * 1024f64;
+
+    Ok(match value.chars().last().unwrap() {
+        'K' | 'k' => (value[..(value.len()-1)].parse::<f64>()? * KB) as u64,
+        'M' | 'm' => (value[..(value.len()-1)].parse::<f64>()? * MB) as u64,
+        'G' | 'g' => (value[..(value.len()-1)].parse::<f64>()? * GB) as u64,
+        'T' | 't' => (value[..(value.len()-1)].parse::<f64>()? * TB) as u64,
+        _ => value.parse::<u64>()?,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_num_bytes() {
+        assert!(parse_num_bytes("").is_err());
+        assert_eq!(0, parse_num_bytes("0").unwrap());
+        assert!(parse_num_bytes(".5").is_err());
+        assert!(parse_num_bytes("0.5").is_err());
+        assert_eq!(1, parse_num_bytes("1").unwrap());
+        assert_eq!(500, parse_num_bytes("500").unwrap());
+        assert!(parse_num_bytes("500.123").is_err());
+        assert_eq!(100_000, parse_num_bytes("100000").unwrap());
+
+        assert!(parse_num_bytes("k").is_err());
+        assert_eq!(0, parse_num_bytes("0k").unwrap());
+        assert_eq!(512, parse_num_bytes(".5k").unwrap());
+        assert_eq!(512, parse_num_bytes("0.5k").unwrap());
+        assert_eq!(1024, parse_num_bytes("1k").unwrap());
+        assert_eq!(500 * 1024, parse_num_bytes("500k").unwrap());
+        assert_eq!((500.123f64 * 1024f64) as u64, parse_num_bytes("500.123k").unwrap());
+        assert_eq!(100_000 * 1024, parse_num_bytes("100000k").unwrap());
+
+        assert!(parse_num_bytes("K").is_err());
+        assert_eq!(0, parse_num_bytes("0K").unwrap());
+        assert_eq!(512, parse_num_bytes(".5K").unwrap());
+        assert_eq!(512, parse_num_bytes("0.5K").unwrap());
+        assert_eq!(1024, parse_num_bytes("1K").unwrap());
+        assert_eq!(500 * 1024, parse_num_bytes("500K").unwrap());
+        assert_eq!((500.123f64 * 1024f64) as u64, parse_num_bytes("500.123K").unwrap());
+        assert_eq!(100_000 * 1024, parse_num_bytes("100000K").unwrap());
+
+        assert!(parse_num_bytes("m").is_err());
+        assert_eq!(0, parse_num_bytes("0m").unwrap());
+        assert_eq!(512 * 1024, parse_num_bytes(".5m").unwrap());
+        assert_eq!(512 * 1024, parse_num_bytes("0.5m").unwrap());
+        assert_eq!(1024 * 1024, parse_num_bytes("1m").unwrap());
+        assert_eq!(500 * 1024 * 1024, parse_num_bytes("500m").unwrap());
+        assert_eq!((500.123f64 * 1024f64 * 1024f64) as u64, parse_num_bytes("500.123m").unwrap());
+        assert_eq!(100_000 * 1024 * 1024, parse_num_bytes("100000m").unwrap());
+
+        assert!(parse_num_bytes("M").is_err());
+        assert_eq!(0, parse_num_bytes("0M").unwrap());
+        assert_eq!(512 * 1024, parse_num_bytes(".5M").unwrap());
+        assert_eq!(512 * 1024, parse_num_bytes("0.5M").unwrap());
+        assert_eq!(1024 * 1024, parse_num_bytes("1M").unwrap());
+        assert_eq!(500 * 1024 * 1024, parse_num_bytes("500M").unwrap());
+        assert_eq!((500.123f64 * 1024f64 * 1024f64) as u64, parse_num_bytes("500.123M").unwrap());
+        assert_eq!(100_000 * 1024 * 1024, parse_num_bytes("100000M").unwrap());
+
+        assert!(parse_num_bytes("g").is_err());
+        assert_eq!(0, parse_num_bytes("0g").unwrap());
+        assert_eq!(512 * 1024 * 1024, parse_num_bytes(".5g").unwrap());
+        assert_eq!(512 * 1024 * 1024, parse_num_bytes("0.5g").unwrap());
+        assert_eq!(1024 * 1024 * 1024, parse_num_bytes("1g").unwrap());
+        assert_eq!(500 * 1024 * 1024 * 1024, parse_num_bytes("500g").unwrap());
+        assert_eq!((500.123f64 * 1024f64 * 1024f64 * 1024f64) as u64, parse_num_bytes("500.123g").unwrap());
+        assert_eq!(100_000 * 1024 * 1024 * 1024, parse_num_bytes("100000g").unwrap());
+
+        assert!(parse_num_bytes("G").is_err());
+        assert_eq!(0, parse_num_bytes("0G").unwrap());
+        assert_eq!(512 * 1024 * 1024, parse_num_bytes(".5G").unwrap());
+        assert_eq!(512 * 1024 * 1024, parse_num_bytes("0.5G").unwrap());
+        assert_eq!(1024 * 1024 * 1024, parse_num_bytes("1G").unwrap());
+        assert_eq!(500 * 1024 * 1024 * 1024, parse_num_bytes("500G").unwrap());
+        assert_eq!((500.123f64 * 1024f64 * 1024f64 * 1024f64) as u64, parse_num_bytes("500.123G").unwrap());
+        assert_eq!(100_000 * 1024 * 1024 * 1024, parse_num_bytes("100000G").unwrap());
+
+        assert!(parse_num_bytes("t").is_err());
+        assert_eq!(0, parse_num_bytes("0t").unwrap());
+        assert_eq!(512 * 1024 * 1024 * 1024, parse_num_bytes(".5t").unwrap());
+        assert_eq!(512 * 1024 * 1024 * 1024, parse_num_bytes("0.5t").unwrap());
+        assert_eq!(1024 * 1024 * 1024 * 1024, parse_num_bytes("1t").unwrap());
+        assert_eq!(500 * 1024 * 1024 * 1024 * 1024, parse_num_bytes("500t").unwrap());
+        assert_eq!((500.123f64 * 1024f64 * 1024f64 * 1024f64 * 1024f64) as u64, parse_num_bytes("500.123t").unwrap());
+        assert_eq!(100_000 * 1024 * 1024 * 1024 * 1024, parse_num_bytes("100000t").unwrap());
+
+        assert!(parse_num_bytes("T").is_err());
+        assert_eq!(0, parse_num_bytes("0T").unwrap());
+        assert_eq!(512 * 1024 * 1024 * 1024, parse_num_bytes(".5T").unwrap());
+        assert_eq!(512 * 1024 * 1024 * 1024, parse_num_bytes("0.5T").unwrap());
+        assert_eq!(1024 * 1024 * 1024 * 1024, parse_num_bytes("1T").unwrap());
+        assert_eq!(500 * 1024 * 1024 * 1024 * 1024, parse_num_bytes("500T").unwrap());
+        assert_eq!((500.123f64 * 1024f64 * 1024f64 * 1024f64 * 1024f64) as u64, parse_num_bytes("500.123T").unwrap());
+        assert_eq!(100_000 * 1024 * 1024 * 1024 * 1024, parse_num_bytes("100000T").unwrap());
+
+        assert!(parse_num_bytes("abc").is_err());
+        assert!(parse_num_bytes("5c").is_err());
+        assert!(parse_num_bytes("abc4").is_err());
+        assert!(parse_num_bytes("a4bc4").is_err());
+    }
 }
