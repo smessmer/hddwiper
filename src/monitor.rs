@@ -22,11 +22,7 @@ where
     M1: ProductReceiver<Vec<u8>>,
     M2: ProductReceiver<Vec<u8>>,
 {
-    pub fn new(
-        seed_monitor: M1,
-        random_monitor: M2,
-        writer: &'w BlockWriter,
-    ) -> Self {
+    pub fn new(seed_monitor: M1, random_monitor: M2, writer: &'w BlockWriter) -> Self {
         Self {
             seed_monitor,
             random_monitor,

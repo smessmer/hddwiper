@@ -91,9 +91,10 @@ async fn main() -> Result<()> {
         args.buffersize as usize,
         num_random_workers,
         || {
-            Ok(random::secure_rng(byte_stream::byte_stream_from_producer(
-                seed_producer.make_receiver(),
-            ), args.disable_rdrand))
+            Ok(random::secure_rng(
+                byte_stream::byte_stream_from_producer(seed_producer.make_receiver()),
+                args.disable_rdrand,
+            ))
         },
     )?;
     let random_monitor = random_producer.make_receiver();
@@ -102,11 +103,7 @@ async fn main() -> Result<()> {
     file.seek(SeekFrom::Start(parse_num_bytes(&args.skip_bytes)?))?;
     let writer = BlockWriter::new(random_producer.make_receiver(), file);
 
-    let mut monitor = Monitor::new(
-        seed_producer.make_receiver(),
-        random_monitor,
-        &writer,
-    );
+    let mut monitor = Monitor::new(seed_producer.make_receiver(), random_monitor, &writer);
 
     while !writer.is_finished() {
         monitor.display()?;
