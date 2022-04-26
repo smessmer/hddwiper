@@ -123,7 +123,7 @@ async fn main() -> Result<()> {
 
 fn parse_num_bytes(value: &str) -> Result<u64> {
     ensure!(
-        value.len() > 0,
+        !value.is_empty(),
         "Cannot parse empty string as a number of bytes"
     );
 
