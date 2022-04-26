@@ -6,6 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use std::fs::File;
 use std::time::Duration;
+use std::io::{Seek, SeekFrom};
 
 mod block_writer;
 mod byte_stream;
@@ -37,7 +38,7 @@ struct Args {
     /// This can be useful if a previous wipe was interrupted and you
     /// want to continue it.
     #[clap(short, long, default_value_t = 0)]
-    skip_bytes: usize,
+    skip_bytes: u64,
 }
 
 #[tokio::main]
@@ -78,7 +79,8 @@ async fn main() -> Result<()> {
 
     let random_producer = CompositeXorProducer::new(random_producer_rdrand, random_producer_xsalsa);
 
-    let file = File::create("/home/heinzi/testfile")?;
+    let mut file = File::create("~/testfile")?;
+    file.seek(SeekFrom::Start(args.skip_bytes))?;
     let writer = BlockWriter::new(random_producer.make_receiver(), file);
 
     let mut monitor = Monitor::new(
