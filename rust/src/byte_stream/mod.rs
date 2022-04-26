@@ -53,3 +53,5 @@ mod block_source_byte_stream;
 pub use block_source_byte_stream::BlockSourceByteStream;
 mod producer_byte_stream;
 pub use producer_byte_stream::{byte_stream_from_producer, ProductBlockSource};
+mod xor_byte_stream;
+pub use xor_byte_stream::XorByteStream;

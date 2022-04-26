@@ -1,6 +1,7 @@
 #![feature(write_all_vectored)]
 #![feature(generic_associated_types)]
 #![feature(io_error_more)]
+#![feature(scoped_threads)]
 
 use anyhow::{ensure, Result};
 use clap::Parser;
@@ -12,13 +13,11 @@ mod block_writer;
 mod byte_stream;
 mod byte_stream_producer;
 mod cancellation_token;
-mod composite_xor_producer;
 mod monitor;
 mod producer;
 mod random;
 
 use block_writer::BlockWriter;
-use composite_xor_producer::CompositeXorProducer;
 use monitor::Monitor;
 use producer::Producer;
 
@@ -87,42 +86,17 @@ async fn main() -> Result<()> {
 
     let random_generator_block_size = parse_num_bytes(&args.blocksize)?;
 
-    let random_producer_xsalsa = byte_stream_producer::new_byte_stream_thread_pool_producer(
+    let random_producer = byte_stream_producer::new_byte_stream_thread_pool_producer(
         random_generator_block_size as usize,
         args.buffersize as usize,
         num_random_workers,
         || {
-            Ok(random::rng_xsalsa(byte_stream::byte_stream_from_producer(
+            Ok(random::secure_rng(byte_stream::byte_stream_from_producer(
                 seed_producer.make_receiver(),
-            )))
+            ), args.disable_rdrand))
         },
     )?;
-    let monitor_xsalsa = random_producer_xsalsa.make_receiver();
-    let rdrand_algorithm: Box<dyn Fn() -> Result<random::SyncByteStreamOrZeroes<_>>> =
-        if args.disable_rdrand {
-            Box::new(|| Ok(random::rng_zeroes()))
-        } else {
-            Box::new(|| Ok(random::rng_rdrand_or_zeroes()))
-        };
-    let random_producer_rdrand = byte_stream_producer::new_byte_stream_thread_pool_producer(
-        random_generator_block_size as usize,
-        args.buffersize as usize,
-        num_random_workers,
-        rdrand_algorithm,
-    )?;
-    let monitor_rdrand = if args.disable_rdrand {
-        None
-    } else {
-        Some(random_producer_rdrand.make_receiver())
-    };
-
-    // TODO The current approach requires a buffer for both, the xsalsa and the rdrand producer,
-    // while actually we could just xor them and only keep the result, halving our memory requirement.
-    // Maybe it's a better idea to not use this CompositeXorProducer abstraction, but instead just use
-    // one producer that produces the whole stream, but internally its workers split work into two
-    // threads, one for xsalsa and one for rdrand.
-
-    let random_producer = CompositeXorProducer::new(random_producer_rdrand, random_producer_xsalsa);
+    let random_monitor = random_producer.make_receiver();
 
     let mut file = File::create(args.output_file)?;
     file.seek(SeekFrom::Start(parse_num_bytes(&args.skip_bytes)?))?;
@@ -130,8 +104,7 @@ async fn main() -> Result<()> {
 
     let mut monitor = Monitor::new(
         seed_producer.make_receiver(),
-        monitor_xsalsa,
-        monitor_rdrand,
+        random_monitor,
         &writer,
     );
 

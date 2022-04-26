@@ -17,6 +17,7 @@ env_logger = "^0.9.0"
 running-average = "0.1.0"
 futures = "^0.3.21"
 clap= {version = "^3.1.12", features = ["derive"]}
+crossbeam-channel = "^0.5.4"
 
 [dev-dependencies]
 hex = "^0.4.3"
