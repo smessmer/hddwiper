@@ -54,7 +54,7 @@ struct Args {
     /// random generator).
     /// Warning: With high buffersize, the amount of RAM required goes up. This can
     /// cause the program to be killed.
-    #[clap(short = 'u', long, default_value_t = 100)]
+    #[clap(short = 'u', long, default_value_t = 10)]
     buffersize: u64,
 
     /// Disable RDRAND generator. By default, if the CPU has RDRAND, then hddwiper uses
