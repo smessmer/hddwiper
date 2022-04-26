@@ -12,8 +12,7 @@ pub struct CompositeXorProducer<P1: Producer<Vec<u8>>, P2: Producer<Vec<u8>>> {
     producer2: P2,
 }
 
-impl<P1: Producer<Vec<u8>>, P2: Producer<Vec<u8>>> CompositeXorProducer<P1, P2>
-{
+impl<P1: Producer<Vec<u8>>, P2: Producer<Vec<u8>>> CompositeXorProducer<P1, P2> {
     pub fn new(producer1: P1, producer2: P2) -> Self {
         Self {
             producer1,
