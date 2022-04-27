@@ -9,7 +9,6 @@ mod xsalsa20;
 use crate::byte_stream::{SyncByteStream, XorByteStream};
 use reseeding::ReseedingRandomGenerator;
 
-pub use self::rdrand::SyncByteStreamOrZeroes;
 pub use xsalsa20::XSalsa20Rng;
 
 pub fn secure_seed_rng() -> Result<impl SyncByteStream + Clone> {
@@ -25,7 +24,7 @@ pub fn secure_rng(
     disable_rdrand: bool,
 ) -> impl SyncByteStream {
     let rng_rdrand = if disable_rdrand {
-        rdrand::SyncByteStreamOrZeroes::<rdrand::RdRandGenerator>::new_zeroes()
+        rdrand::RdRandGenerator::new_zeroes()
     } else {
         rdrand::RdRandGenerator::new_if_supported()
     };

@@ -10,7 +10,6 @@ anyhow = "^1.0.57"
 flume = "^0.10.12"
 async-trait = "^0.1.53"
 rand = "^0.8.5"
-rdrand = "^0.8.2"
 generic-array = "^0.14.5"
 salsa20 = "^0.10.2"
 log = "^0.4.16"
@@ -19,6 +18,9 @@ running-average = "^0.1.0"
 futures = "^0.3.21"
 clap= {version = "^3.1.12", features = ["derive"]}
 crossbeam-channel = "^0.5.4"
+
+[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
+rdrand = "^0.8.2"
 
 [dev-dependencies]
 hex = "^0.4.3"

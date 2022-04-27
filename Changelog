@@ -1,6 +1,7 @@
 2.0.1 (unreleased)
 ----------
 * Fix output artefacts
+* Fix build on Apple Silicon
 
 2.0.0
 ----------
