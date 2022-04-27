@@ -27,9 +27,9 @@ mod implementation {
             }
         }
 
-        pub fn new_zeroes() -> Self {
+        pub fn new_zeroes() -> SyncByteStreamOrZeroes<Self> {
             log::warn!("RDRAND generator is disabled. Generaetd keys might be less random.");
-            Self { stream: None }
+            SyncByteStreamOrZeroes::new_zeroes()
         }
     }
 
