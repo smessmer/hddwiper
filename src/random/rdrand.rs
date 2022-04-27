@@ -2,7 +2,6 @@ use anyhow::Result;
 
 use crate::byte_stream::SyncByteStream;
 
-
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod implementation {
     use rdrand::{RdRand, RdSeed};
