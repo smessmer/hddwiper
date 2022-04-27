@@ -43,7 +43,7 @@ where
             self.speed_calculator.measurement().rate() / ((1024 * 1024) as f64);
         let num_seed_blocks = self.seed_monitor.num_products_in_buffer();
         let num_random_blocks_xsalsa = self.random_monitor.num_products_in_buffer();
-        print!("\rWritten: {written_gb:.2} GB\tSpeed: {current_speed_mb_s:.2} MB/s\tSeedbuffer: {num_seed_blocks:3}\tRandombuffer: {num_random_blocks_xsalsa:3}");
+        print!("\rWritten: {written_gb:.2} GB\tSpeed: {current_speed_mb_s:4.2} MB/s\tSeedbuffer: {num_seed_blocks:3}\tRandombuffer: {num_random_blocks_xsalsa:3}");
         io::stdout().flush()?;
 
         Ok(())
