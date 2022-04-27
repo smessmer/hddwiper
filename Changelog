@@ -2,6 +2,7 @@
 ----------
 * Fix output artefacts
 * Fix build on Apple Silicon
+* Show warnings by default
 
 2.0.0
 ----------
