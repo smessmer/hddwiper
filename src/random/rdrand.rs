@@ -29,7 +29,6 @@ mod implementation {
         }
 
         pub fn new_zeroes() -> SyncByteStreamOrZeroes<Self> {
-            log::warn!("RDRAND generator is disabled. Generaetd keys might be less random.");
             SyncByteStreamOrZeroes::new_zeroes()
         }
     }
@@ -118,7 +117,6 @@ mod implementation {
         }
 
         pub fn new_zeroes() -> ZeroesGenerator {
-            log::warn!("RDRAND generator is disabled. Generaetd keys might be less random.");
             ZeroesGenerator
         }
     }
