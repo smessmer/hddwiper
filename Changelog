@@ -1,0 +1,11 @@
+2.0.1 (unreleased)
+----------
+* Fix output artefacts
+
+2.0.0
+----------
+Reimplement in Rust
+
+1.x
+----------
+C++ version of hddwiper
