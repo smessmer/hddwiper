@@ -1,7 +1,5 @@
 #![feature(write_all_vectored)]
-#![feature(generic_associated_types)]
 #![feature(io_error_more)]
-#![feature(scoped_threads)]
 
 use anyhow::{ensure, Result};
 use clap::Parser;
