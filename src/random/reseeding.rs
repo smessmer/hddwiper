@@ -65,10 +65,11 @@ impl<G: SeedableRandomGenerator + Send, S: SyncByteStream + Send> SyncByteStream
         while dest.len() > self.bytes_until_reseed {
             // Read as much as we can before reseed
             if self.bytes_until_reseed > 0 {
-                self._read_without_reseed(&mut dest[..self.bytes_until_reseed])?;
+                let bytes_to_read = self.bytes_until_reseed;
+                self._read_without_reseed(&mut dest[..bytes_to_read])?;
 
                 // Now only try to read into the rest of dest
-                dest = &mut dest[self.bytes_until_reseed..];
+                dest = &mut dest[bytes_to_read..];
             }
 
             self._reseed()?;
@@ -186,13 +187,19 @@ mod tests {
         assert_eq!(read_count.load(Ordering::SeqCst), 2);
     }
 
-    // NOTE: There appears to be a bug in blocking_read where a single read
-    // spanning multiple reseed boundaries causes an infinite loop. The issue
-    // is that _read_without_reseed decrements bytes_until_reseed to 0, but
-    // then we use bytes_until_reseed to slice dest, resulting in dest[0..]
-    // which doesn't advance the slice. This test is disabled until that bug
-    // is fixed. For now, the reseeding works correctly when individual reads
-    // don't span multiple reseed boundaries.
+    #[test]
+    fn large_read_spanning_multiple_reseeds() {
+        let read_count = Arc::new(AtomicUsize::new(0));
+        let seed_source = CountingSeedSource::new(Arc::clone(&read_count));
+        let mut rng: ReseedingRandomGenerator<TestGenerator, _> =
+            ReseedingRandomGenerator::new(100, seed_source);
+
+        // Read 250 bytes, should trigger 3 reseeds (0-100, 100-200, 200-250)
+        let mut data = [0u8; 250];
+        rng.blocking_read(&mut data).unwrap();
+
+        assert_eq!(read_count.load(Ordering::SeqCst), 3);
+    }
 
     #[test]
     fn clone_creates_fresh_generator() {
