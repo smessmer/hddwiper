@@ -7,6 +7,7 @@ pub trait SyncBlockSource {
 
 #[async_trait]
 pub trait AsyncBlockSource {
+    #[allow(dead_code)]
     async fn async_read(&mut self) -> Result<Vec<u8>>;
 }
 

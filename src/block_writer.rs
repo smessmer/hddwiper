@@ -53,7 +53,7 @@ fn _launch_worker_thread(
             // TODO Test that crashes bubble up correctly
             let blocks = block_source.get_all_available_products();
             let mut io_slices: Vec<IoSlice> =
-                (&blocks).iter().map(|block| IoSlice::new(block)).collect();
+                blocks.iter().map(|block| IoSlice::new(block)).collect();
             log::debug!("Getting blocks...writing block...");
             let write_result = writer.write_all_vectored(&mut io_slices);
             if let Err(err) = &write_result {

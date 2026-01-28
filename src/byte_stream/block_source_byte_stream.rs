@@ -139,7 +139,7 @@ impl Drop for Buffer {
     fn drop(&mut self) {
         // Check the buffer_size invariant. If it's correct now, it probably was correct all the time.
         let actual_buffer_size: usize =
-            self.buffer.iter().map(|b| b.len()).sum::<usize>() - self.current_pos as usize;
+            self.buffer.iter().map(|b| b.len()).sum::<usize>() - self.current_pos;
         assert_eq!(
             self.buffer_size, actual_buffer_size,
             "Miscalculated self.buffer_size"

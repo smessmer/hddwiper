@@ -123,9 +123,11 @@ impl Worker {
 
 #[async_trait]
 pub trait ProductReceiver<T> {
+    #[allow(dead_code)]
     async fn async_get_product(&self) -> Result<T>;
     fn blocking_get_product(&self) -> Result<T>;
     fn get_all_available_products(&self) -> Vec<T>;
+    #[allow(dead_code)]
     fn try_get_product(&self) -> Result<T>;
     fn num_products_in_buffer(&self) -> usize;
 }
