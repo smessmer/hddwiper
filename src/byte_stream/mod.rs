@@ -1,13 +1,7 @@
 use anyhow::Result;
-use async_trait::async_trait;
 
 pub trait SyncByteStream {
     fn blocking_read(&mut self, dest: &mut [u8]) -> Result<()>;
-}
-
-#[async_trait]
-pub trait AsyncByteStream {
-    async fn async_read(&mut self, dest: &mut [u8]) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -37,22 +31,12 @@ pub mod testutils {
             self.rng.blocking_read(dest)
         }
     }
-
-    #[async_trait]
-    impl AsyncByteStream for FakeByteStream {
-        async fn async_read(&mut self, dest: &mut [u8]) -> Result<()> {
-            // Implement async using the sync algorithm. This is ok for tests.
-            self.rng.blocking_read(dest)
-        }
-    }
 }
 
 mod block_source;
-pub use block_source::{AsyncBlockSource, SyncBlockSource};
 mod block_source_byte_stream;
-pub use block_source_byte_stream::BlockSourceByteStream;
 mod producer_byte_stream;
-pub use producer_byte_stream::{byte_stream_from_producer, ProductBlockSource};
+pub use producer_byte_stream::byte_stream_from_producer;
 mod byte_stream_producer;
 pub use byte_stream_producer::new_byte_stream_thread_pool_producer;
 mod xor_byte_stream;
