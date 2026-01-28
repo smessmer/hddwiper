@@ -26,3 +26,55 @@ impl<R: ProductReceiver<Vec<u8>>> SyncBlockSource for ProductBlockSource<R> {
         self.receiver.blocking_get_product()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::producer::{Producer, ThreadPoolProducer};
+
+    #[test]
+    fn byte_stream_from_producer_reads_data() {
+        let block_size = 100;
+        let producer: ThreadPoolProducer<Vec<u8>> = ThreadPoolProducer::new(1, 10, || {
+            let mut counter: u8 = 0;
+            Ok(move || {
+                let block: Vec<u8> = (0..block_size).map(|_| {
+                    let val = counter;
+                    counter = counter.wrapping_add(1);
+                    val
+                }).collect();
+                Ok(block)
+            })
+        })
+        .unwrap();
+
+        let receiver = producer.make_receiver();
+        let mut stream = byte_stream_from_producer(receiver);
+
+        let mut data = [0u8; 50];
+        stream.blocking_read(&mut data).unwrap();
+
+        // Just verify we got some data
+        assert_eq!(data.len(), 50);
+    }
+
+    #[test]
+    fn byte_stream_from_producer_multiple_reads() {
+        let block_size = 10;
+        let producer: ThreadPoolProducer<Vec<u8>> = ThreadPoolProducer::new(1, 10, || {
+            Ok(move || {
+                Ok(vec![0xAB; block_size])
+            })
+        })
+        .unwrap();
+
+        let receiver = producer.make_receiver();
+        let mut stream = byte_stream_from_producer(receiver);
+
+        // Read across multiple blocks
+        let mut data = [0u8; 25];
+        stream.blocking_read(&mut data).unwrap();
+
+        assert!(data.iter().all(|&b| b == 0xAB));
+    }
+}
