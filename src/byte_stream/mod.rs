@@ -1,14 +1,7 @@
 use anyhow::Result;
-use async_trait::async_trait;
 
 pub trait SyncByteStream {
     fn blocking_read(&mut self, dest: &mut [u8]) -> Result<()>;
-}
-
-#[async_trait]
-pub trait AsyncByteStream {
-    #[allow(dead_code)]
-    async fn async_read(&mut self, dest: &mut [u8]) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -35,14 +28,6 @@ pub mod testutils {
 
     impl SyncByteStream for FakeByteStream {
         fn blocking_read(&mut self, dest: &mut [u8]) -> Result<()> {
-            self.rng.blocking_read(dest)
-        }
-    }
-
-    #[async_trait]
-    impl AsyncByteStream for FakeByteStream {
-        async fn async_read(&mut self, dest: &mut [u8]) -> Result<()> {
-            // Implement async using the sync algorithm. This is ok for tests.
             self.rng.blocking_read(dest)
         }
     }

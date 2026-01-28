@@ -1,5 +1,4 @@
 use anyhow::Result;
-use async_trait::async_trait;
 use flume::{Receiver, Sender};
 use std::thread::{self, JoinHandle};
 
@@ -121,14 +120,9 @@ impl Worker {
     }
 }
 
-#[async_trait]
 pub trait ProductReceiver<T> {
-    #[allow(dead_code)]
-    async fn async_get_product(&self) -> Result<T>;
     fn blocking_get_product(&self) -> Result<T>;
     fn get_all_available_products(&self) -> Vec<T>;
-    #[allow(dead_code)]
-    fn try_get_product(&self) -> Result<T>;
     fn num_products_in_buffer(&self) -> usize;
 }
 
@@ -136,21 +130,10 @@ pub struct ThreadPoolProductReceiver<T: Send> {
     receiver: Receiver<T>,
 }
 
-#[async_trait]
 impl<T: Send> ProductReceiver<T> for ThreadPoolProductReceiver<T> {
-    async fn async_get_product(&self) -> Result<T> {
-        let product = self.receiver.recv_async().await;
-        Ok(product?)
-    }
-
     fn blocking_get_product(&self) -> Result<T> {
         let product = self.receiver.recv();
         Ok(product?)
-    }
-
-    fn try_get_product(&self) -> Result<T> {
-        let product = self.receiver.try_recv()?;
-        Ok(product)
     }
 
     fn get_all_available_products(&self) -> Vec<T> {
