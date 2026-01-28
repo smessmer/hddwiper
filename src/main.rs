@@ -1,5 +1,4 @@
 #![feature(write_all_vectored)]
-#![feature(io_error_more)]
 
 use anyhow::{ensure, Result};
 use clap::Parser;
