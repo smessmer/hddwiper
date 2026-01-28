@@ -144,3 +144,152 @@ impl<T: Send> ProductReceiver<T> for ThreadPoolProductReceiver<T> {
         self.receiver.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[test]
+    fn producer_creates_products() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = Arc::clone(&counter);
+
+        let producer: ThreadPoolProducer<usize> = ThreadPoolProducer::new(1, 10, move || {
+            let counter = Arc::clone(&counter_clone);
+            Ok(move || Ok(counter.fetch_add(1, Ordering::SeqCst)))
+        })
+        .unwrap();
+
+        let receiver = producer.make_receiver();
+
+        // Get a few products
+        let p1 = receiver.blocking_get_product().unwrap();
+        let p2 = receiver.blocking_get_product().unwrap();
+        let p3 = receiver.blocking_get_product().unwrap();
+
+        // Products should be sequential (though order between workers may vary)
+        assert!(p1 < 10);
+        assert!(p2 < 10);
+        assert!(p3 < 10);
+    }
+
+    #[test]
+    fn multiple_workers_produce() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = Arc::clone(&counter);
+
+        let producer: ThreadPoolProducer<usize> = ThreadPoolProducer::new(4, 20, move || {
+            let counter = Arc::clone(&counter_clone);
+            Ok(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(42)
+            })
+        })
+        .unwrap();
+
+        let receiver = producer.make_receiver();
+
+        // Get several products
+        for _ in 0..10 {
+            receiver.blocking_get_product().unwrap();
+        }
+
+        // All workers should have produced
+        assert!(counter.load(Ordering::SeqCst) >= 10);
+    }
+
+    #[test]
+    fn receiver_num_products_in_buffer() {
+        let producer: ThreadPoolProducer<usize> =
+            ThreadPoolProducer::new(1, 100, || Ok(|| Ok(42))).unwrap();
+
+        let receiver = producer.make_receiver();
+
+        // Wait a bit for buffer to fill
+        std::thread::sleep(Duration::from_millis(50));
+
+        // Should have some products buffered
+        assert!(receiver.num_products_in_buffer() > 0);
+    }
+
+    #[test]
+    fn get_all_available_products() {
+        let producer: ThreadPoolProducer<usize> =
+            ThreadPoolProducer::new(1, 100, || Ok(|| Ok(42))).unwrap();
+
+        let receiver = producer.make_receiver();
+
+        // Wait a bit for buffer to fill
+        std::thread::sleep(Duration::from_millis(50));
+
+        let products = receiver.get_all_available_products();
+        assert!(!products.is_empty());
+        assert!(products.iter().all(|&p| p == 42));
+    }
+
+    #[test]
+    fn multiple_receivers_get_different_products() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = Arc::clone(&counter);
+
+        let producer: ThreadPoolProducer<usize> = ThreadPoolProducer::new(2, 20, move || {
+            let counter = Arc::clone(&counter_clone);
+            Ok(move || Ok(counter.fetch_add(1, Ordering::SeqCst)))
+        })
+        .unwrap();
+
+        let receiver1 = producer.make_receiver();
+        let receiver2 = producer.make_receiver();
+
+        let mut products1 = Vec::new();
+        let mut products2 = Vec::new();
+
+        for _ in 0..5 {
+            products1.push(receiver1.blocking_get_product().unwrap());
+            products2.push(receiver2.blocking_get_product().unwrap());
+        }
+
+        // Receivers should get different products (no duplicates across receivers)
+        for p1 in &products1 {
+            assert!(
+                !products2.contains(p1),
+                "Product {} appeared in both receivers",
+                p1
+            );
+        }
+    }
+
+    #[test]
+    fn producer_drop_stops_workers() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = Arc::clone(&counter);
+
+        {
+            let _producer: ThreadPoolProducer<usize> = ThreadPoolProducer::new(2, 5, move || {
+                let counter = Arc::clone(&counter_clone);
+                Ok(move || {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    Ok(42)
+                })
+            })
+            .unwrap();
+
+            // Let it run a bit
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        // After drop, counter should stop incrementing
+        let count_after_drop = counter.load(Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(50));
+        let count_later = counter.load(Ordering::SeqCst);
+
+        // Counter shouldn't have changed much (workers should have stopped)
+        assert!(
+            count_later <= count_after_drop + 2,
+            "Workers didn't stop after drop"
+        );
+    }
+}

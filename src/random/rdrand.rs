@@ -145,3 +145,52 @@ mod implementation {
 
 pub use implementation::RdRandGenerator;
 pub use implementation::RdSeedGenerator;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rdrand_new_if_supported_doesnt_crash() {
+        let mut rng = RdRandGenerator::new_if_supported();
+        let mut data = [0u8; 100];
+        rng.blocking_read(&mut data).unwrap();
+        // On x86/x86_64 with RDRAND support, we get random data
+        // On other platforms or without support, we get zeros
+        // Either way, it should work
+    }
+
+    #[test]
+    fn rdrand_new_zeroes() {
+        let mut rng = RdRandGenerator::new_zeroes();
+        let mut data = [0u8; 100];
+        rng.blocking_read(&mut data).unwrap();
+        // Should produce all zeros
+        assert!(data.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn rdseed_new_if_supported_doesnt_crash() {
+        let mut rng = RdSeedGenerator::new_if_supported();
+        let mut data = [0u8; 100];
+        rng.blocking_read(&mut data).unwrap();
+        // On x86/x86_64 with RDSEED support, we get random data
+        // On other platforms or without support, we get zeros
+        // Either way, it should work
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    mod x86_tests {
+        use super::super::implementation::SyncByteStreamOrZeroes;
+        use super::*;
+
+        #[test]
+        fn sync_byte_stream_or_zeroes_with_zeroes() {
+            let mut stream: SyncByteStreamOrZeroes<RdRandGenerator> =
+                SyncByteStreamOrZeroes::new_zeroes();
+            let mut data = [0xFFu8; 100];
+            stream.blocking_read(&mut data).unwrap();
+            assert!(data.iter().all(|&b| b == 0));
+        }
+    }
+}
