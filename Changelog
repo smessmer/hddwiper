@@ -1,8 +1,10 @@
 2.0.1 (unreleased)
 ----------
+* Fix infinite loop when wiping large drives (blocking_read spanning multiple reseed boundaries)
 * Fix output artefacts
 * Fix build on Apple Silicon
 * Show warnings by default
+* Require Rust 1.83+ for building from source
 
 2.0.0
 ----------
