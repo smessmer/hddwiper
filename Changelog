@@ -1,6 +1,6 @@
 2.0.1 (unreleased)
 ----------
-* Fix infinite loop when wiping large drives (blocking_read spanning multiple reseed boundaries)
+* Fix infinite loop when using --blocksize larger than 1GB
 * Fix output artefacts
 * Fix build on Apple Silicon
 * Show warnings by default
