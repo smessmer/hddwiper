@@ -8,7 +8,7 @@ use crate::block_writer::BlockWriter;
 use crate::producer::ProductReceiver;
 
 const CLEAR_LINE: &str = "\x1b[2K";
-const NUM_DISPLAY_LINES: usize = 6;
+const NUM_DISPLAY_LINES: usize = 5;
 
 pub struct Monitor<'w, M1, M2>
 where
