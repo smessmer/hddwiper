@@ -10,6 +10,13 @@ use crate::producer::ProductReceiver;
 const CLEAR_LINE: &str = "\x1b[2K";
 const PROGRESS_BAR_WIDTH: usize = 30;
 
+pub struct ProgressInfo {
+    /// Total size of the device in bytes.
+    pub device_size: u64,
+    /// Number of bytes skipped at the start (from --skip-bytes).
+    pub skip_bytes: u64,
+}
+
 pub struct Monitor<'w, M1, M2>
 where
     M1: ProductReceiver<Vec<u8>>,
@@ -20,7 +27,7 @@ where
     writer: &'w BlockWriter,
     speed_calculator: RealTimeRunningAverage<f64>,
     written_bytes: u64,
-    total_bytes: Option<u64>,
+    progress: Option<ProgressInfo>,
     has_displayed: bool,
     num_display_lines: usize,
 }
@@ -34,16 +41,16 @@ where
         seed_monitor: M1,
         random_monitor: M2,
         writer: &'w BlockWriter,
-        total_bytes: Option<u64>,
+        progress: Option<ProgressInfo>,
     ) -> Self {
-        let num_display_lines = if total_bytes.is_some() { 7 } else { 5 };
+        let num_display_lines = if progress.is_some() { 7 } else { 5 };
         Self {
             seed_monitor,
             random_monitor,
             writer,
             speed_calculator: RealTimeRunningAverage::default(),
             written_bytes: 0,
-            total_bytes,
+            progress,
             has_displayed: false,
             num_display_lines,
         }
@@ -55,7 +62,6 @@ where
             .insert((new_written_bytes - self.written_bytes) as f64);
         self.written_bytes = new_written_bytes;
 
-        let written_gb = (new_written_bytes as f64) / ((1024 * 1024 * 1024) as f64);
         let current_speed_mb_s =
             self.speed_calculator.measurement().rate() / ((1024 * 1024) as f64);
         let num_seed_blocks = self.seed_monitor.num_products_in_buffer();
@@ -71,17 +77,25 @@ where
         let mut speed_val = String::new();
         write!(speed_val, "{current_speed_mb_s:.2} MB/s")?;
 
-        if let Some(total) = self.total_bytes {
-            let total_gb = (total as f64) / ((1024 * 1024 * 1024) as f64);
-            write!(written_val, "{written_gb:.2} / {total_gb:.2} GB")?;
+        if let Some(ref progress) = self.progress {
+            let device_size = progress.device_size;
+            let skip_bytes = progress.skip_bytes;
 
-            let fraction = if total > 0 {
-                (new_written_bytes as f64) / (total as f64)
+            // Overall device position = skip_bytes + bytes written this session
+            let device_position = skip_bytes + new_written_bytes;
+            let position_gb = (device_position as f64) / ((1024 * 1024 * 1024) as f64);
+            let total_gb = (device_size as f64) / ((1024 * 1024 * 1024) as f64);
+            write!(written_val, "{position_gb:.2} / {total_gb:.2} GB")?;
+
+            // Progress bar reflects overall device completion
+            let fraction = if device_size > 0 {
+                (device_position as f64) / (device_size as f64)
             } else {
                 1.0
             };
             let percentage = (fraction * 100.0).min(100.0);
-            let filled = ((fraction * PROGRESS_BAR_WIDTH as f64) as usize).min(PROGRESS_BAR_WIDTH);
+            let filled =
+                ((fraction * PROGRESS_BAR_WIDTH as f64) as usize).min(PROGRESS_BAR_WIDTH);
             let empty = PROGRESS_BAR_WIDTH - filled;
 
             let bar = format!(
@@ -90,8 +104,9 @@ where
                 "\u{2591}".repeat(empty),
             );
 
+            // ETA based on remaining bytes to write this session
+            let remaining_bytes = device_size.saturating_sub(device_position);
             let eta = if current_speed_mb_s > 0.0 {
-                let remaining_bytes = total.saturating_sub(new_written_bytes);
                 let remaining_secs =
                     (remaining_bytes as f64) / (current_speed_mb_s * (1024 * 1024) as f64);
                 format_duration(remaining_secs)
@@ -121,6 +136,7 @@ where
                 random = format!("{num_random_blocks:>4}").dimmed(),
             );
         } else {
+            let written_gb = (new_written_bytes as f64) / ((1024 * 1024 * 1024) as f64);
             write!(written_val, "{written_gb:.2} GB")?;
 
             print!(

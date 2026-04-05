@@ -14,7 +14,7 @@ mod producer;
 mod random;
 
 use block_writer::BlockWriter;
-use monitor::Monitor;
+use monitor::{Monitor, ProgressInfo};
 use producer::Producer;
 
 const SEED_GENERATOR_BLOCK_SIZE: usize = 256;
@@ -106,20 +106,26 @@ fn main() -> Result<()> {
     // and partitions but returns 0 for newly-created regular files.
     let skip_bytes = parse_num_bytes(&args.skip_bytes)?;
     let device_size = file.seek(SeekFrom::End(0))?;
-    let total_bytes_to_write = if device_size > skip_bytes {
-        Some(device_size - skip_bytes)
-    } else {
-        None
-    };
 
     file.seek(SeekFrom::Start(skip_bytes))?;
     let writer = BlockWriter::new(random_producer.make_receiver(), file);
+
+    // Only show progress when we know the device size (block devices).
+    // For regular files, device_size is 0 after File::create truncates them.
+    let progress_info = if device_size > skip_bytes {
+        Some(ProgressInfo {
+            device_size,
+            skip_bytes,
+        })
+    } else {
+        None
+    };
 
     let mut monitor = Monitor::new(
         seed_producer.make_receiver(),
         random_monitor,
         &writer,
-        total_bytes_to_write,
+        progress_info,
     );
 
     while !writer.is_finished() {
