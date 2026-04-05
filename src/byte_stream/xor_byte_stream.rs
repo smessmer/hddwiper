@@ -53,7 +53,10 @@ impl<S2: SyncByteStream> SyncByteStream for XorByteStream<S2> {
         // Collect enough stream1 bytes for XOR, starting with any leftover
         // from a previous oversized prefetch.
         let needed = dest.len();
-        let mut stream1_bytes: Vec<u8> = self.leftover.drain(..self.leftover.len().min(needed)).collect();
+        let mut stream1_bytes: Vec<u8> = self
+            .leftover
+            .drain(..self.leftover.len().min(needed))
+            .collect();
 
         while stream1_bytes.len() < needed {
             let spare = self
@@ -75,7 +78,11 @@ impl<S2: SyncByteStream> SyncByteStream for XorByteStream<S2> {
 
         // Update prefetch size for next round if it changed
         if self.prefetch_len != dest.len() {
-            log::warn!("XorByteStream: read size changed from {} to {} bytes", self.prefetch_len, dest.len());
+            log::warn!(
+                "XorByteStream: read size changed from {} to {} bytes",
+                self.prefetch_len,
+                dest.len()
+            );
             self.prefetch_len = dest.len();
         }
 
@@ -257,7 +264,12 @@ mod tests {
         s1.blocking_read(&mut e1).unwrap();
         s2.blocking_read(&mut e2).unwrap();
         for i in 0..1000 {
-            assert_eq!(result[i], e1[i] ^ e2[i], "mismatch at index {} in initial large read", i);
+            assert_eq!(
+                result[i],
+                e1[i] ^ e2[i],
+                "mismatch at index {} in initial large read",
+                i
+            );
         }
 
         // Many small reads: each 10 bytes, served from leftovers of the 1000-byte prefetch
@@ -348,7 +360,12 @@ mod tests {
         s1.blocking_read(&mut e1).unwrap();
         s2.blocking_read(&mut e2).unwrap();
         for i in 0..5000 {
-            assert_eq!(result[i], e1[i] ^ e2[i], "mismatch at index {} in large read", i);
+            assert_eq!(
+                result[i],
+                e1[i] ^ e2[i],
+                "mismatch at index {} in large read",
+                i
+            );
         }
     }
 

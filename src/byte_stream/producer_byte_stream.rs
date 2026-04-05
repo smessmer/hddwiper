@@ -6,7 +6,9 @@ use crate::producer::ProductReceiver;
 
 /// Creates a [ByteStream] from a [ProductReceiver]. Multiple [ProductReceiver]s can be created from the same [Producer],
 /// in which case each [ProductReceiver] will gets different blocks
-pub fn byte_stream_from_producer(producer: impl ProductReceiver<Vec<u8>> + Send) -> impl SyncByteStream {
+pub fn byte_stream_from_producer(
+    producer: impl ProductReceiver<Vec<u8>> + Send,
+) -> impl SyncByteStream {
     super::block_source_byte_stream::BlockSourceByteStream::new(ProductBlockSource::new(producer))
 }
 
@@ -38,11 +40,13 @@ mod tests {
         let producer: ThreadPoolProducer<Vec<u8>> = ThreadPoolProducer::new(1, 10, || {
             let mut counter: u8 = 0;
             Ok(move || {
-                let block: Vec<u8> = (0..block_size).map(|_| {
-                    let val = counter;
-                    counter = counter.wrapping_add(1);
-                    val
-                }).collect();
+                let block: Vec<u8> = (0..block_size)
+                    .map(|_| {
+                        let val = counter;
+                        counter = counter.wrapping_add(1);
+                        val
+                    })
+                    .collect();
                 Ok(block)
             })
         })
@@ -61,12 +65,8 @@ mod tests {
     #[test]
     fn byte_stream_from_producer_multiple_reads() {
         let block_size = 10;
-        let producer: ThreadPoolProducer<Vec<u8>> = ThreadPoolProducer::new(1, 10, || {
-            Ok(move || {
-                Ok(vec![0xAB; block_size])
-            })
-        })
-        .unwrap();
+        let producer: ThreadPoolProducer<Vec<u8>> =
+            ThreadPoolProducer::new(1, 10, || Ok(move || Ok(vec![0xAB; block_size]))).unwrap();
 
         let receiver = producer.make_receiver();
         let mut stream = byte_stream_from_producer(receiver);

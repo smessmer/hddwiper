@@ -1,5 +1,3 @@
-#![feature(write_all_vectored)]
-
 use anyhow::{ensure, Result};
 use clap::Parser;
 use std::fs::File;
