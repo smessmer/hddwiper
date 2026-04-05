@@ -12,126 +12,82 @@ jobs:
     name: Test (x64, stable, release)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --release
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --release
   test_x64_stable_release_all_features:
     name: Test (x64, stable, release, all_features)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --release --all-features
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --release --all-features
   test_x64_stable_debug:
     name: Test (x64, stable, debug)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: ""
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test
   test_x64_stable_debug_all_features:
     name: Test (x64, stable, debug, all_features)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all-features
   test_x64_nightly_release:
     name: Test (x64, nightly, release)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --release
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo test --release
   test_x64_nightly_release_all_features:
     name: Test (x64, nightly, release, all_features)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --release --all-features
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo test --release --all-features
   test_x64_nightly_debug:
     name: Test (x64, nightly, debug)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: ""
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo test
   test_x64_nightly_debug_all_features:
     name: Test (x64, nightly, debug, all_features)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo test --all-features
   clippy_check:
     name: Linter (clippy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - run: rustup component add clippy
-      - uses: actions-rs/clippy-check@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features --all-targets -- -D warnings
+          components: clippy
+      - run: cargo clippy --all-features --all-targets -- -D warnings
   code_format:
     name: Code Formatter (rustfmt)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           components: rustfmt
-          override: true
-      - uses: mbrobbel/rustfmt-check@0.3.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - run: cargo fmt -- --check
   sync_readme:
     name: Sync README.md (cargo sync-readme)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
     - run: cargo install cargo-readme
     - run: ./gen_readme.sh
     # Fail job if gen_readme.sh introduced changes. If this fails, then we need to run gen_readme.sh locally and add it to the commit.
@@ -140,25 +96,13 @@ jobs:
     name: Code Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features --no-fail-fast
-        env:
-          # Setup taken from https://github.com/actions-rs/grcov/tree/d9881ad44979aa34f846a82abb764b2b8cfbd715
-          CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
-          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off'
-      - id: coverage
-        uses: actions-rs/grcov@v0.1
-      - uses: codecov/codecov-action@v3
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-tarpaulin
+      - run: cargo tarpaulin --all-features --out xml
+      - uses: codecov/codecov-action@v5
         with:
           #token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
-          files: ${{ steps.coverage.outputs.report }}
+          files: cobertura.xml
           fail_ci_if_error: true
           verbose: true
