@@ -94,8 +94,7 @@ where
                 1.0
             };
             let percentage = (fraction * 100.0).min(100.0);
-            let filled =
-                ((fraction * PROGRESS_BAR_WIDTH as f64) as usize).min(PROGRESS_BAR_WIDTH);
+            let filled = ((fraction * PROGRESS_BAR_WIDTH as f64) as usize).min(PROGRESS_BAR_WIDTH);
             let empty = PROGRESS_BAR_WIDTH - filled;
 
             let bar = format!(
