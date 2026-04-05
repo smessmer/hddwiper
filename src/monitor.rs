@@ -69,14 +69,14 @@ where
              {CLEAR_LINE}\n\
              {CLEAR_LINE}  {label_seed}  {seed} blocks\n\
              {CLEAR_LINE}  {label_random}  {random} blocks",
-            label_written = "Written:".bold(),
-            written = written_val.cyan().bold(),
-            label_speed = "Speed:".bold(),
-            speed = speed_val.green(),
-            label_seed = "Seed buffer:".dimmed(),
-            seed = format!("{num_seed_blocks:>3}").dimmed(),
-            label_random = "Random buffer:".dimmed(),
-            random = format!("{num_random_blocks:>3}").dimmed(),
+            label_written = format!("{:>14}", "Written:").bold(),
+            written = format!("{:>10}", written_val).cyan().bold(),
+            label_speed = format!("{:>14}", "Speed:").bold(),
+            speed = format!("{:>10}", speed_val).green(),
+            label_seed = format!("{:>14}", "Seed buffer:").dimmed(),
+            seed = format!("{num_seed_blocks:>4}").dimmed(),
+            label_random = format!("{:>14}", "Random buffer:").dimmed(),
+            random = format!("{num_random_blocks:>4}").dimmed(),
         );
         io::stdout().flush()?;
 
