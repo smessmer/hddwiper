@@ -100,11 +100,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
-      - run: cargo install cargo-tarpaulin
-      - run: cargo tarpaulin --all-features --out xml
-      - uses: codecov/codecov-action@v5
+      - uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: cobertura.xml
+          tool: cargo-llvm-cov
+      - run: cargo llvm-cov --all-features --lcov --output-path lcov.info
+      - uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
           fail_ci_if_error: true
-          verbose: true
