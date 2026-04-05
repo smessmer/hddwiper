@@ -100,11 +100,27 @@ fn main() -> Result<()> {
     )?;
     let random_monitor = random_producer.make_receiver();
 
-    let mut file = File::create(args.output_file)?;
-    file.seek(SeekFrom::Start(parse_num_bytes(&args.skip_bytes)?))?;
+    let mut file = File::create(&args.output_file)?;
+
+    // Detect total device size by seeking to end. This works for block devices
+    // and partitions but returns 0 for newly-created regular files.
+    let skip_bytes = parse_num_bytes(&args.skip_bytes)?;
+    let device_size = file.seek(SeekFrom::End(0))?;
+    let total_bytes_to_write = if device_size > skip_bytes {
+        Some(device_size - skip_bytes)
+    } else {
+        None
+    };
+
+    file.seek(SeekFrom::Start(skip_bytes))?;
     let writer = BlockWriter::new(random_producer.make_receiver(), file);
 
-    let mut monitor = Monitor::new(seed_producer.make_receiver(), random_monitor, &writer);
+    let mut monitor = Monitor::new(
+        seed_producer.make_receiver(),
+        random_monitor,
+        &writer,
+        total_bytes_to_write,
+    );
 
     while !writer.is_finished() {
         monitor.display()?;
