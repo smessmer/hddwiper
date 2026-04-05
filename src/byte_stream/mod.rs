@@ -4,6 +4,12 @@ pub trait SyncByteStream {
     fn blocking_read(&mut self, dest: &mut [u8]) -> Result<()>;
 }
 
+impl SyncByteStream for Box<dyn SyncByteStream + Send> {
+    fn blocking_read(&mut self, dest: &mut [u8]) -> Result<()> {
+        (**self).blocking_read(dest)
+    }
+}
+
 #[cfg(test)]
 pub mod testutils {
     use super::*;
@@ -39,5 +45,6 @@ mod producer_byte_stream;
 pub use producer_byte_stream::byte_stream_from_producer;
 mod byte_stream_producer;
 pub use byte_stream_producer::new_byte_stream_thread_pool_producer;
+mod prefetched_byte_stream;
 mod xor_byte_stream;
 pub use xor_byte_stream::XorByteStream;
