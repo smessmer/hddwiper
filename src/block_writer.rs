@@ -50,8 +50,16 @@ fn _launch_worker_thread(
     thread::spawn(move || {
         loop {
             log::debug!("Getting blocks...");
-            // TODO Test that crashes bubble up correctly
-            let blocks = block_source.get_all_available_products();
+            // Block until at least one product is available, then drain the rest.
+            // Without the blocking_get_product, get_all_available_products can return
+            // an empty vec when the RNG is slower than the disk, causing a hot busy-loop
+            // that wastes CPU cycles that should be spent generating random data.
+            let first_block = match block_source.blocking_get_product() {
+                Ok(block) => block,
+                Err(_) => return,
+            };
+            let mut blocks = block_source.get_all_available_products();
+            blocks.insert(0, first_block);
             let mut io_slices: Vec<IoSlice> =
                 blocks.iter().map(|block| IoSlice::new(block)).collect();
             log::debug!("Getting blocks...writing block...");
