@@ -8,6 +8,36 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Stable test jobs are disabled because #![feature(write_all_vectored)] requires nightly.
+  # Uncomment these if write_all_vectored is stabilized or replaced with a stable alternative.
+  # test_x64_stable_release:
+  #   name: Test (x64, stable, release)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - run: cargo test --release
+  # test_x64_stable_release_all_features:
+  #   name: Test (x64, stable, release, all_features)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - run: cargo test --release --all-features
+  # test_x64_stable_debug:
+  #   name: Test (x64, stable, debug)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - run: cargo test
+  # test_x64_stable_debug_all_features:
+  #   name: Test (x64, stable, debug, all_features)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - run: cargo test --all-features
   test_x64_nightly_release:
     name: Test (x64, nightly, release)
     runs-on: ubuntu-latest
