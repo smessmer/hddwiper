@@ -112,7 +112,7 @@ fn main() -> Result<()> {
         std::thread::sleep(Duration::from_secs(1));
     }
 
-    println!("\nFinished.");
+    println!("\nFinished");
 
     writer.join();
 
