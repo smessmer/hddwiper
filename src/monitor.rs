@@ -43,7 +43,7 @@ where
         writer: &'w BlockWriter,
         progress: Option<ProgressInfo>,
     ) -> Self {
-        let num_display_lines = if progress.is_some() { 7 } else { 5 };
+        let num_display_lines = if progress.is_some() { 6 } else { 5 };
         Self {
             seed_monitor,
             random_monitor,
