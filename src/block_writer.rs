@@ -1,4 +1,4 @@
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, IoSlice, Write};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -60,8 +60,10 @@ fn _launch_worker_thread(
             };
             let mut blocks = block_source.get_all_available_products();
             blocks.insert(0, first_block);
+            let mut io_slices: Vec<IoSlice> =
+                blocks.iter().map(|block| IoSlice::new(block)).collect();
             log::debug!("Getting blocks...writing block...");
-            let write_result = write_all_blocks(&mut writer, &blocks);
+            let write_result = writer.write_all_vectored(&mut io_slices);
             if let Err(err) = &write_result {
                 if err.kind() == ErrorKind::StorageFull {
                     return;
@@ -77,13 +79,6 @@ fn _launch_worker_thread(
             log::debug!("Getting block...writing block...finished");
         }
     })
-}
-
-fn write_all_blocks(writer: &mut impl Write, blocks: &[Vec<u8>]) -> std::io::Result<()> {
-    for block in blocks {
-        writer.write_all(block)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
