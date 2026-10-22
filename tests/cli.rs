@@ -1,8 +1,9 @@
 //! Tests that run the hddwiper binary like a user does
 
-use salsa20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
+mod common;
+
+use common::{data_of_seed, hddwiper, hddwiper_with_exactly};
 use std::path::PathBuf;
-use std::process::Command;
 
 /// A seed, and the first 64 bytes of the data that belongs to it. Like in the unit test for
 /// this, these bytes were computed with libsodium. They are XSalsa20 with the seed as its key
@@ -11,47 +12,6 @@ const SEED: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d
 const FIRST_DATA_OF_SEED: &str = "a141cb3246c2dd6bfbb8aedfaee2caf0d6c7d5fd72abfca1ee1cbbbd94058ddc\
                                   4a0ef04198aabf335c54720f2546bed2e43474f047e6284c6b034b8d3cc9df32";
 const OTHER_SEED: &str = "ff0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
-
-/// What hddwiper did when it was run
-struct Run {
-    exit_code: i32,
-    stdout: String,
-    stderr: String,
-}
-
-/// Runs hddwiper with `args`, and with small blocks. With the blocks it has by default, a run
-/// takes seconds if hddwiper isn't optimized, because of the random data it generates in
-/// advance.
-fn hddwiper(args: &[&str]) -> Run {
-    let mut all_args = vec!["--blocksize", "64K"];
-    all_args.extend(args);
-    hddwiper_with_exactly(&all_args)
-}
-
-/// Runs hddwiper with `args` and nothing else
-fn hddwiper_with_exactly(args: &[&str]) -> Run {
-    let output = Command::new(env!("CARGO_BIN_EXE_hddwiper"))
-        .args(args)
-        // So that it logs what it logs by default
-        .env_remove("RUST_LOG")
-        .output()
-        .unwrap();
-    Run {
-        exit_code: output.status.code().expect("hddwiper was killed"),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
-}
-
-/// The data that a deterministic wipe with `seed` writes to the positions from `position` on
-fn data_of_seed(seed: &str, position: u64, num_bytes: usize) -> Vec<u8> {
-    let key = hex::decode(seed).unwrap();
-    let mut cipher = salsa20::XSalsa20::new_from_slices(&key, &[0; 24]).unwrap();
-    cipher.seek(position);
-    let mut data = vec![0; num_bytes];
-    cipher.apply_keystream(&mut data);
-    data
-}
 
 /// A file for a test. It is removed when this is dropped.
 struct TempFile(PathBuf);
@@ -415,18 +375,7 @@ fn wipe_fails_if_the_file_cant_be_opened() {
 #[cfg(target_os = "linux")]
 mod wipe_of_full_device {
     use super::*;
-
-    /// The seed that a deterministic wipe showed
-    fn shown_seed(run: &Run) -> &str {
-        let seed = run
-            .stdout
-            .lines()
-            .find_map(|line| line.strip_prefix("Seed: "))
-            .unwrap_or_else(|| panic!("No seed in: {}", run.stdout));
-        assert_eq!(64, seed.len());
-        assert!(seed.chars().all(|c| c.is_ascii_hexdigit()));
-        seed
-    }
+    use common::shown_seed;
 
     #[test]
     fn wipe_finishes() {
