@@ -12,7 +12,7 @@
 
 mod common;
 
-use common::{data_of_seed, hddwiper, shown_seed};
+use common::{data_of_seed, hddwiper, hddwiper_with_exactly, shown_seed, Run};
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -20,6 +20,10 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 const MIB: usize = 1024 * 1024;
+
+/// The block sizes that the tests wipe with. A wipe collects small blocks to larger writes, and
+/// writes large ones as they are. The last one is the size that blocks have by default.
+const BLOCK_SIZES: [&str; 3] = ["64K", "4M", "10M"];
 
 /// Runs a command that sets something up, and returns what it printed
 fn run(program: &str, args: &[&str]) -> String {
@@ -183,13 +187,21 @@ fn other_data(num_bytes: usize) -> Vec<u8> {
     (0..num_bytes).map(|i| (i % 251) as u8 + 1).collect()
 }
 
-/// Wipes `path` deterministically and returns the seed. The wipe has to succeed.
-fn wipe_deterministically(path: &str, options: &[&str]) -> String {
+/// Runs hddwiper with `args`, and with blocks of `block_size`
+fn hddwiper_with_blocks(block_size: &str, args: &[&str]) -> Run {
+    let mut all_args = vec!["--blocksize", block_size];
+    all_args.extend(args);
+    hddwiper_with_exactly(&all_args)
+}
+
+/// Wipes `path` deterministically with blocks of `block_size` and returns the seed. The wipe
+/// has to succeed.
+fn wipe_deterministically(path: &str, block_size: &str, options: &[&str]) -> String {
     let mut args = vec!["--deterministic"];
     args.extend(options);
     args.push(path);
 
-    let run = hddwiper(&args);
+    let run = hddwiper_with_blocks(block_size, &args);
 
     assert_eq!(0, run.exit_code, "{}", run.stderr);
     assert!(run.stdout.ends_with("Finished.\n"), "{}", run.stdout);
@@ -206,25 +218,30 @@ fn wipe_writes_the_data_of_its_seed_to_the_whole_device() {
         (512, 8 * MIB),
         (512, 8 * MIB + 512),
         (512, 3 * MIB + 1536),
+        (512, 24 * MIB + 512),
         (4096, 8 * MIB),
         (4096, 8 * MIB + 8192),
+        (4096, 24 * MIB + 4096),
     ] {
-        let device = LoopDevice::new(dir.path("device"), size, sector_size);
+        for block_size in BLOCK_SIZES {
+            let device = LoopDevice::new(dir.path("device"), size, sector_size);
 
-        let seed = wipe_deterministically(&device.path, &[]);
+            let seed = wipe_deterministically(&device.path, block_size, &[]);
 
-        assert!(
-            data_of_seed(&seed, 0, size) == device.content(),
-            "Wrong data on a device of {size} bytes with sectors of {sector_size} bytes"
-        );
-        let run = hddwiper(&["--verify", &seed, &device.path]);
-        assert_eq!(0, run.exit_code, "{}", run.stderr);
-        assert!(
-            run.stdout
-                .contains(&format!("Verification successful: All {size} bytes")),
-            "{}",
-            run.stdout
-        );
+            assert!(
+                data_of_seed(&seed, 0, size) == device.content(),
+                "Wrong data on a device of {size} bytes with sectors of {sector_size} bytes, \
+                 wiped with blocks of {block_size}"
+            );
+            let run = hddwiper(&["--verify", &seed, &device.path]);
+            assert_eq!(0, run.exit_code, "{}", run.stderr);
+            assert!(
+                run.stdout
+                    .contains(&format!("Verification successful: All {size} bytes")),
+                "{}",
+                run.stdout
+            );
+        }
     }
 }
 
@@ -234,23 +251,25 @@ fn wipe_without_seed_fills_the_whole_device() {
     const SIZE: usize = 8 * MIB + 512;
     let dir = TestDir::new("wipe-random");
     for options in [vec![], vec!["--disable-rdrand"]] {
-        let device = LoopDevice::new(dir.path("device"), SIZE, 512);
+        for block_size in BLOCK_SIZES {
+            let device = LoopDevice::new(dir.path("device"), SIZE, 512);
 
-        let mut args = options.clone();
-        args.push(&device.path);
-        let run = hddwiper(&args);
+            let mut args = options.clone();
+            args.push(&device.path);
+            let run = hddwiper_with_blocks(block_size, &args);
 
-        assert_eq!(0, run.exit_code, "{options:?}: {}", run.stderr);
-        assert!(run.stdout.ends_with("Finished.\n"), "{}", run.stdout);
-        // We can't know the data. But random data has no sector of zeroes, so no sector was
-        // left out, up to the last one.
-        let content = device.content();
-        assert_eq!(SIZE, content.len());
-        for (index, sector) in content.chunks(512).enumerate() {
-            assert!(
-                sector.iter().any(|byte| *byte != 0),
-                "{options:?}: Sector {index} wasn't written"
-            );
+            assert_eq!(0, run.exit_code, "{options:?}: {}", run.stderr);
+            assert!(run.stdout.ends_with("Finished.\n"), "{}", run.stdout);
+            // We can't know the data. But random data has no sector of zeroes, so no sector was
+            // left out, up to the last one.
+            let content = device.content();
+            assert_eq!(SIZE, content.len());
+            for (index, sector) in content.chunks(512).enumerate() {
+                assert!(
+                    sector.iter().any(|byte| *byte != 0),
+                    "{options:?}, blocks of {block_size}: Sector {index} wasn't written"
+                );
+            }
         }
     }
 }
@@ -262,30 +281,37 @@ fn wipe_leaves_alone_what_is_in_front_of_skip_bytes() {
     let dir = TestDir::new("wipe-skip");
     // At the beginning of a sector, and within one. Then the wipe has to write the beginning
     // of that sector again as it is.
-    for skip_bytes in [4096, 5000, 4 * MIB + 1] {
-        let device = LoopDevice::new(dir.path("device"), SIZE, 512);
-        device.write(0, &other_data(SIZE));
-        let skip_bytes_arg = skip_bytes.to_string();
+    for skip_bytes in [4096, 5000, 4 * MIB, 4 * MIB + 1] {
+        for block_size in BLOCK_SIZES {
+            let device = LoopDevice::new(dir.path("device"), SIZE, 512);
+            device.write(0, &other_data(SIZE));
+            let skip_bytes_arg = skip_bytes.to_string();
 
-        let seed = wipe_deterministically(&device.path, &["--skip-bytes", &skip_bytes_arg]);
+            let seed = wipe_deterministically(
+                &device.path,
+                block_size,
+                &["--skip-bytes", &skip_bytes_arg],
+            );
 
-        let content = device.content();
-        assert!(
-            other_data(SIZE)[..skip_bytes] == content[..skip_bytes],
-            "Data in front of {skip_bytes} skipped bytes was changed"
-        );
-        assert!(
-            data_of_seed(&seed, skip_bytes as u64, SIZE - skip_bytes) == content[skip_bytes..],
-            "Wrong data behind {skip_bytes} skipped bytes"
-        );
-        let run = hddwiper(&[
-            "--verify",
-            &seed,
-            "--skip-bytes",
-            &skip_bytes_arg,
-            &device.path,
-        ]);
-        assert_eq!(0, run.exit_code, "{}", run.stderr);
+            let content = device.content();
+            assert!(
+                other_data(SIZE)[..skip_bytes] == content[..skip_bytes],
+                "Data in front of {skip_bytes} skipped bytes was changed, with blocks of \
+                 {block_size}"
+            );
+            assert!(
+                data_of_seed(&seed, skip_bytes as u64, SIZE - skip_bytes) == content[skip_bytes..],
+                "Wrong data behind {skip_bytes} skipped bytes, with blocks of {block_size}"
+            );
+            let run = hddwiper(&[
+                "--verify",
+                &seed,
+                "--skip-bytes",
+                &skip_bytes_arg,
+                &device.path,
+            ]);
+            assert_eq!(0, run.exit_code, "{}", run.stderr);
+        }
     }
 }
 
@@ -294,23 +320,31 @@ fn wipe_leaves_alone_what_is_in_front_of_skip_bytes() {
 fn interrupted_wipe_can_be_continued_with_its_seed() {
     const SIZE: usize = 8 * MIB;
     let dir = TestDir::new("wipe-continue");
-    let device = LoopDevice::new(dir.path("device"), SIZE, 512);
-    let seed = wipe_deterministically(&device.path, &[]);
-    // As if the wipe had been interrupted here
-    device.write(3 * MIB + 1234, &vec![0; SIZE - 3 * MIB - 1234]);
+    for block_size in BLOCK_SIZES {
+        let device = LoopDevice::new(dir.path("device"), SIZE, 512);
+        let seed = wipe_deterministically(&device.path, block_size, &[]);
+        // As if the wipe had been interrupted here
+        device.write(3 * MIB + 1234, &vec![0; SIZE - 3 * MIB - 1234]);
 
-    // It is continued a bit before that, at a position within a sector
-    let run = hddwiper(&[
-        &format!("--deterministic={seed}"),
-        "--skip-bytes",
-        "3000001",
-        &device.path,
-    ]);
+        // It is continued a bit before that, at a position within a sector
+        let run = hddwiper_with_blocks(
+            block_size,
+            &[
+                &format!("--deterministic={seed}"),
+                "--skip-bytes",
+                "3000001",
+                &device.path,
+            ],
+        );
 
-    assert_eq!(0, run.exit_code, "{}", run.stderr);
-    assert!(data_of_seed(&seed, 0, SIZE) == device.content());
-    let run = hddwiper(&["--verify", &seed, &device.path]);
-    assert_eq!(0, run.exit_code, "{}", run.stdout);
+        assert_eq!(0, run.exit_code, "{}", run.stderr);
+        assert!(
+            data_of_seed(&seed, 0, SIZE) == device.content(),
+            "Wrong data with blocks of {block_size}"
+        );
+        let run = hddwiper(&["--verify", &seed, &device.path]);
+        assert_eq!(0, run.exit_code, "{}", run.stdout);
+    }
 }
 
 #[test]
@@ -319,7 +353,7 @@ fn verify_finds_data_that_was_overwritten() {
     const SIZE: usize = 8 * MIB;
     let dir = TestDir::new("verify-overwritten");
     let device = LoopDevice::new(dir.path("device"), SIZE, 512);
-    let seed = wipe_deterministically(&device.path, &[]);
+    let seed = wipe_deterministically(&device.path, "64K", &[]);
     device.write(MIB, &vec![0; 10_000]);
 
     let run = hddwiper(&["--verify", &seed, &device.path]);
@@ -347,7 +381,7 @@ fn verify_finds_data_that_the_device_lost_although_the_system_has_it_cached() {
     let device = LoopDevice::new(dir.path("device"), SIZE, 512);
     // While anything has the device open, the system keeps what it has cached of it
     let _keeps_device_open = File::open(&device.path).unwrap();
-    let seed = wipe_deterministically(&device.path, &[]);
+    let seed = wipe_deterministically(&device.path, "64K", &[]);
     // Reading the device puts its data into the cache of the system
     assert!(data_of_seed(&seed, 0, SIZE) == device.content());
 
@@ -382,47 +416,56 @@ fn wipe_fails_if_the_device_has_less_space_than_it_claims() {
     // The device keeps its data in a file system that is too small for it
     let file_system = FileSystem::in_memory(dir.path("mnt"), REAL_SIZE);
     for options in [vec![], vec!["--deterministic"]] {
-        let device = LoopDevice::new(file_system.path("device"), CLAIMED_SIZE, 512);
+        // The space ends at the end of a block, and within one
+        for block_size in BLOCK_SIZES {
+            let device = LoopDevice::new(file_system.path("device"), CLAIMED_SIZE, 512);
 
-        let mut args = options.clone();
-        args.push(&device.path);
-        let run = hddwiper(&args);
+            let mut args = options.clone();
+            args.push(&device.path);
+            let run = hddwiper_with_blocks(block_size, &args);
 
-        assert_eq!(1, run.exit_code, "{options:?}: {}", run.stdout);
-        assert!(!run.stdout.contains("Finished."), "{}", run.stdout);
-        assert!(
-            run.stderr.contains(&format!(
-                "Error: The wipe of {} ended after {REAL_SIZE} bytes, although its size is \
-                 {CLAIMED_SIZE} bytes",
-                device.path
-            )),
-            "{options:?}: {}",
-            run.stderr
-        );
+            assert_eq!(1, run.exit_code, "{options:?}: {}", run.stdout);
+            assert!(!run.stdout.contains("Finished."), "{}", run.stdout);
+            assert!(
+                run.stderr.contains(&format!(
+                    "Error: The wipe of {} ended after {REAL_SIZE} bytes, although its size is \
+                     {CLAIMED_SIZE} bytes",
+                    device.path
+                )),
+                "{options:?}, blocks of {block_size}: {}",
+                run.stderr
+            );
+        }
     }
 }
 
 #[test]
 #[ignore = "needs root"]
 fn wipe_fills_a_file_until_its_file_system_is_full() {
-    const SIZE: usize = 8 * MIB;
+    // Not a whole number of the larger blocks
+    const SIZE: usize = 9 * MIB;
     let dir = TestDir::new("wipe-file");
     let file_system = FileSystem::in_memory(dir.path("mnt"), SIZE);
     let file = file_system.path("file");
     let file = file.to_str().unwrap();
 
-    let seed = wipe_deterministically(file, &[]);
+    for block_size in BLOCK_SIZES {
+        let seed = wipe_deterministically(file, block_size, &[]);
 
-    // The file is all that is in the file system, so it got all the space
-    assert!(data_of_seed(&seed, 0, SIZE) == std::fs::read(file).unwrap());
-    let run = hddwiper(&["--verify", &seed, file]);
-    assert_eq!(0, run.exit_code, "{}", run.stderr);
-    assert!(
-        run.stdout
-            .contains(&format!("Verification successful: All {SIZE} bytes")),
-        "{}",
-        run.stdout
-    );
+        // The file is all that is in the file system, so it got all the space
+        assert!(
+            data_of_seed(&seed, 0, SIZE) == std::fs::read(file).unwrap(),
+            "Wrong data with blocks of {block_size}"
+        );
+        let run = hddwiper(&["--verify", &seed, file]);
+        assert_eq!(0, run.exit_code, "{}", run.stderr);
+        assert!(
+            run.stdout
+                .contains(&format!("Verification successful: All {SIZE} bytes")),
+            "{}",
+            run.stdout
+        );
+    }
 }
 
 #[test]
@@ -435,19 +478,24 @@ fn wipe_fills_a_file_on_a_file_system_of_a_device() {
     let file = file_system.path("file");
     let file = file.to_str().unwrap();
 
-    let seed = wipe_deterministically(file, &[]);
+    for block_size in BLOCK_SIZES {
+        let seed = wipe_deterministically(file, block_size, &[]);
 
-    // How much of the device the file gets is up to the file system, but it is most of it
-    let content = std::fs::read(file).unwrap();
-    let size = content.len();
-    assert!(size > DEVICE_SIZE / 2, "The file only has {size} bytes");
-    assert!(data_of_seed(&seed, 0, size) == content);
-    let run = hddwiper(&["--verify", &seed, file]);
-    assert_eq!(0, run.exit_code, "{}", run.stderr);
-    assert!(
-        run.stdout
-            .contains(&format!("Verification successful: All {size} bytes")),
-        "{}",
-        run.stdout
-    );
+        // How much of the device the file gets is up to the file system, but it is most of it
+        let content = std::fs::read(file).unwrap();
+        let size = content.len();
+        assert!(size > DEVICE_SIZE / 2, "The file only has {size} bytes");
+        assert!(
+            data_of_seed(&seed, 0, size) == content,
+            "Wrong data with blocks of {block_size}"
+        );
+        let run = hddwiper(&["--verify", &seed, file]);
+        assert_eq!(0, run.exit_code, "{}", run.stderr);
+        assert!(
+            run.stdout
+                .contains(&format!("Verification successful: All {size} bytes")),
+            "{}",
+            run.stdout
+        );
+    }
 }

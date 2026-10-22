@@ -26,6 +26,10 @@ impl<R: Read + Seek> AlignedReader<R> {
     /// bytes at a time, which has to be a multiple of [ALIGNMENT], and begins with that at a
     /// multiple of `buffer_size`. So reads are also aligned for devices with larger sectors.
     pub fn new(mut inner: R, position: u64, buffer_size: usize) -> io::Result<Self> {
+        assert!(
+            buffer_size > 0 && buffer_size % ALIGNMENT == 0,
+            "The buffer size has to be a multiple of {ALIGNMENT}, but is {buffer_size}"
+        );
         let buffer = AlignedBuffer::new(buffer_size);
 
         let num_bytes_to_skip = (position % buffer_size as u64) as usize;

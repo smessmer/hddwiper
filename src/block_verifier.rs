@@ -1,6 +1,6 @@
 use anyhow::{ensure, Context, Result};
 use std::io::{self, ErrorKind, Read};
-use std::ops::Range;
+use std::ops::{Deref, Range};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -46,8 +46,8 @@ impl BlockVerifier {
     /// Launch a new thread that compares the content of `reader` with the blocks from `block_source`
     /// until `reader` is at its end. `start_position` is the position that `reader` is at in the
     /// beginning. It is only used to say where the differences are.
-    pub fn new(
-        block_source: impl 'static + ProductReceiver<Vec<u8>> + Send,
+    pub fn new<B: 'static + Deref<Target = [u8]>>(
+        block_source: impl 'static + ProductReceiver<B> + Send,
         reader: impl 'static + Read + Send,
         start_position: u64,
     ) -> Self {
@@ -79,8 +79,8 @@ impl BlockVerifier {
     }
 }
 
-fn _verify_blocks(
-    block_source: impl ProductReceiver<Vec<u8>>,
+fn _verify_blocks<B: Deref<Target = [u8]>>(
+    block_source: impl ProductReceiver<B>,
     mut reader: impl Read,
     start_position: u64,
     num_bytes_verified: &AtomicU64,
