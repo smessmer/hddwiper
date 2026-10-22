@@ -7,6 +7,7 @@
 * Require Rust 1.83+ for building from source
 * Add --deterministic and --verify to check whether a device really stores the data written to it
 * Wait at the end of a wipe until all data is on the device, and fail if it couldn't be written
+* On Linux, --verify reads the data from the device itself and not from the cache of the system
 
 2.0.0
 ----------

@@ -8,6 +8,7 @@ use std::io::{self, ErrorKind, Seek, SeekFrom};
 use std::process::ExitCode;
 use std::time::Duration;
 
+mod aligned_reader;
 mod block_verifier;
 mod block_writer;
 mod byte_stream;
@@ -15,6 +16,7 @@ mod monitor;
 mod producer;
 mod random;
 
+use aligned_reader::AlignedReader;
 use block_verifier::{BlockVerifier, VerificationResult};
 use block_writer::BlockWriter;
 use monitor::{Monitor, ProgressInfo};
@@ -24,6 +26,9 @@ use random::Seed;
 const SEED_GENERATOR_BLOCK_SIZE: usize = 256;
 const NUM_SEED_BUFFER_BLOCKS: usize = 256;
 const NUM_SEED_WORKERS: usize = 1;
+
+/// A verification reads this many bytes from the device at a time
+const VERIFICATION_READ_SIZE: usize = 4 * 1024 * 1024;
 
 /// Output a random stream of bytes to a hard drive or partition to wipe it.
 /// This will continue wiping until the device runs out of space.
@@ -80,6 +85,8 @@ struct Args {
     /// data that belongs to the seed, and lists the parts that differ. A device that doesn't
     /// return the data didn't store it, for example because it is defective or because it
     /// has less capacity than it claims to have.
+    /// On Linux, the data is read from the device itself and not from the cache of the
+    /// system, which can still have data that the device lost.
     #[clap(long, value_name = "SEED", conflicts_with = "deterministic")]
     verify: Option<Seed>,
 
@@ -246,7 +253,7 @@ fn verify(args: &Args, seed: &Seed) -> Result<ExitCode> {
     let block_size = block_size(args)?;
     let skip_bytes = parse_num_bytes(&args.skip_bytes)?;
 
-    let mut file = File::open(&args.output_file)?;
+    let mut file = open_for_verification(&args.output_file)?;
     let device_size = file.seek(SeekFrom::End(0))?;
     ensure!(
         skip_bytes < device_size,
@@ -254,7 +261,7 @@ fn verify(args: &Args, seed: &Seed) -> Result<ExitCode> {
          which is {device_size} bytes",
         args.output_file
     );
-    file.seek(SeekFrom::Start(skip_bytes))?;
+    let reader = AlignedReader::new(file, skip_bytes, VERIFICATION_READ_SIZE)?;
 
     let random_producer = deterministic_block_producer(
         seed,
@@ -263,7 +270,7 @@ fn verify(args: &Args, seed: &Seed) -> Result<ExitCode> {
         num_random_workers(),
         skip_bytes,
     )?;
-    let verifier = BlockVerifier::new(random_producer.make_receiver(), file, skip_bytes);
+    let verifier = BlockVerifier::new(random_producer.make_receiver(), reader, skip_bytes);
 
     // Verification doesn't produce seeds, so there is no seed buffer to show
     let seed_monitor: Option<ThreadPoolProductReceiver<Vec<u8>>> = None;
@@ -299,6 +306,34 @@ fn verify(args: &Args, seed: &Seed) -> Result<ExitCode> {
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// Opens the file to verify. If possible, it is opened for direct reads, which get their data
+/// from the device itself and not from what the system has cached of it. Otherwise, a device
+/// that lost data could pass the verification because the system still knows what was written.
+/// Direct reads have to be aligned, see [AlignedReader].
+fn open_for_verification(path: &str) -> io::Result<File> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let direct_file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECT)
+            .open(path);
+        match direct_file {
+            // This is how the system says that the file system of `path` has no direct reads
+            Err(err) if err.kind() == ErrorKind::InvalidInput => {
+                log::warn!(
+                    "{path} can't be read past the cache of the system. For data that is still \
+                     in that cache, the verification can't tell whether it was really stored."
+                );
+            }
+            result => return result,
+        }
+    }
+
+    File::open(path)
 }
 
 fn block_size(args: &Args) -> Result<usize> {
@@ -431,7 +466,7 @@ mod tests {
 
     use super::*;
     use crate::byte_stream::{SeekableByteStream, SyncByteStream};
-    use std::io::{Cursor, Write};
+    use std::io::{Cursor, Read, Write};
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -683,6 +718,30 @@ mod tests {
                 "Error {errno} is ignored"
             );
         }
+    }
+
+    #[test]
+    fn test_open_for_verification() {
+        let content: Vec<u8> = (0..300_000).map(|i| (i % 251) as u8).collect();
+        let path = std::env::temp_dir().join(format!("hddwiper-test-open-{}", std::process::id()));
+        std::fs::write(&path, &content).unwrap();
+
+        // Where the file is opened for direct reads, this only works if the reads are aligned
+        let file = open_for_verification(path.to_str().unwrap()).unwrap();
+        let mut reader = AlignedReader::new(file, 4321, 16 * aligned_reader::ALIGNMENT).unwrap();
+        let mut read_content = vec![];
+        let result = reader.read_to_end(&mut read_content);
+
+        std::fs::remove_file(&path).unwrap();
+        result.unwrap();
+        assert!(content[4321..] == read_content);
+    }
+
+    #[test]
+    fn test_open_for_verification_fails_for_missing_file() {
+        let path = std::env::temp_dir().join(format!("hddwiper-test-none-{}", std::process::id()));
+        let err = open_for_verification(path.to_str().unwrap()).unwrap_err();
+        assert_eq!(ErrorKind::NotFound, err.kind());
     }
 
     #[test]
