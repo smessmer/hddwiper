@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 mod aligned_buffer;
 mod aligned_reader;
 mod aligned_writer;
+mod block_pool;
 mod block_verifier;
 mod block_writer;
 mod byte_stream;
@@ -19,9 +20,10 @@ mod monitor;
 mod producer;
 mod random;
 
-use aligned_buffer::{AlignedBuffer, ALIGNMENT};
+use aligned_buffer::ALIGNMENT;
 use aligned_reader::AlignedReader;
 use aligned_writer::AlignedWriter;
+use block_pool::{BlockPool, PooledBlock};
 use block_verifier::{BlockVerifier, MismatchesSoFar, VerificationResult};
 use block_writer::BlockWriter;
 use monitor::{Monitor, ProgressInfo};
@@ -153,7 +155,7 @@ fn wipe(args: &Args) -> Result<()> {
     let random_producer = match &seed_producer {
         Some(seed_producer) => byte_stream::new_byte_stream_thread_pool_producer(
             block_size,
-            AlignedBuffer::new,
+            new_block_fn(),
             args.buffersize as usize,
             num_random_workers(),
             || {
@@ -524,6 +526,16 @@ fn num_random_workers() -> usize {
         .unwrap_or(2)
 }
 
+/// Returns what the blocks of a wipe or a verification are created with. All of these blocks
+/// share their memory: when one of them was written or verified, the next block that is created
+/// reuses its memory, see [BlockPool]. Their memory is aligned, so they can be written to a
+/// device directly, and it asks for huge pages, which makes that faster, see
+/// [aligned_buffer::AlignedBuffer].
+fn new_block_fn() -> impl 'static + Fn(usize) -> PooledBlock + Clone + Send {
+    let block_pool = BlockPool::new();
+    move |size| block_pool.block(size)
+}
+
 /// Produces the blocks of a deterministic wipe with `seed`, beginning with the block for
 /// `start_position` on the device. Each position of the device gets the data that the random
 /// stream of the seed has at the same position. A wipe and its verification both take their
@@ -534,10 +546,10 @@ fn deterministic_block_producer(
     buffer_num_blocks: usize,
     num_workers: usize,
     start_position: u64,
-) -> Result<ThreadPoolProducer<AlignedBuffer>> {
+) -> Result<ThreadPoolProducer<PooledBlock>> {
     byte_stream::new_seekable_byte_stream_thread_pool_producer(
         block_size,
-        AlignedBuffer::new,
+        new_block_fn(),
         buffer_num_blocks,
         num_workers,
         start_position,
@@ -1442,6 +1454,33 @@ mod tests {
         rng.seek(skip_bytes as u64).unwrap();
         rng.blocking_read(&mut data[skip_bytes..]).unwrap();
         data
+    }
+
+    #[test]
+    fn test_blocks_reuse_their_memory() {
+        const BLOCK_SIZE: usize = 8192;
+        const NUM_BLOCKS: usize = 300;
+        let seed = Seed::generate().unwrap();
+        let expected = data_of_seed(&seed, 0, NUM_BLOCKS * BLOCK_SIZE);
+        let producer = deterministic_block_producer(&seed, BLOCK_SIZE, 3, 2, 0).unwrap();
+        let receiver = producer.make_receiver();
+
+        // Like a wipe or a verification, which are done with a block before they get the next
+        let mut addresses = std::collections::HashSet::new();
+        for expected in expected.chunks(BLOCK_SIZE) {
+            let block = receiver.blocking_get_product().unwrap();
+            addresses.insert(block.as_ptr() as usize);
+            // It has the data of its part of the stream, and not what was there before
+            assert!(expected == &block[..]);
+        }
+
+        // There are never more blocks than the one that was received, the 3 in the buffer and
+        // the one that each of the 2 workers generates
+        assert!(
+            addresses.len() <= 1 + 3 + 2,
+            "{NUM_BLOCKS} blocks used {} different parts of the memory",
+            addresses.len()
+        );
     }
 
     #[test]
