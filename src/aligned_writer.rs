@@ -137,6 +137,8 @@ mod tests {
         failing_writes: Vec<usize>,
         num_writes: usize,
 
+        /// The next reads fail with these errors, one after the other
+        read_errors: Vec<ErrorKind>,
         num_reads: usize,
     }
 
@@ -153,6 +155,7 @@ mod tests {
                 max_write_size: usize::MAX,
                 failing_writes: vec![],
                 num_writes: 0,
+                read_errors: vec![],
                 num_reads: 0,
             }
         }
@@ -215,6 +218,9 @@ mod tests {
     impl Read for DirectFile {
         fn read(&mut self, dest: &mut [u8]) -> io::Result<usize> {
             self.num_reads += 1;
+            if !self.read_errors.is_empty() {
+                return Err(self.read_errors.remove(0).into());
+            }
             self.assert_is_aligned("read", dest);
 
             let remaining = &self.content[self.position.min(self.content.len())..];
@@ -342,6 +348,51 @@ mod tests {
                 "Wrong for position {position}"
             );
         }
+    }
+
+    #[test]
+    fn reads_the_beginning_of_the_sector_again_after_it_was_interrupted() {
+        const DEVICE_SIZE: usize = 5 * BUFFER_SIZE;
+        let old_data = data(0, DEVICE_SIZE);
+        let new_data = data(1, DEVICE_SIZE + 2 * BUFFER_SIZE);
+        let mut device = DirectFile::device(4096, old_data.clone());
+        device.read_errors = vec![ErrorKind::Interrupted, ErrorKind::Interrupted];
+
+        let mut writer = AlignedWriter::new(&mut device, 5000, BUFFER_SIZE).unwrap();
+        write_until_full(&mut writer, &new_data);
+
+        assert_eq!(3, device.num_reads);
+        assert!(old_data[..5000] == device.content[..5000]);
+        assert!(new_data[..DEVICE_SIZE - 5000] == device.content[5000..]);
+    }
+
+    #[test]
+    fn fails_if_the_beginning_of_the_sector_cant_be_read() {
+        let old_data = data(0, 5 * BUFFER_SIZE);
+        let mut device = DirectFile::device(4096, old_data.clone());
+        device.read_errors = vec![ErrorKind::PermissionDenied];
+
+        let result = AlignedWriter::new(&mut device, 5000, BUFFER_SIZE);
+
+        assert_eq!(
+            ErrorKind::PermissionDenied,
+            result.map(|_| ()).unwrap_err().kind()
+        );
+        assert!(old_data == device.content);
+    }
+
+    #[test]
+    fn fails_if_a_write_takes_nothing() {
+        let old_data = data(0, 5 * BUFFER_SIZE);
+        let mut device = DirectFile::device(4096, old_data.clone());
+        device.max_write_size = 0;
+
+        let mut writer = AlignedWriter::new(&mut device, 0, BUFFER_SIZE).unwrap();
+        let err = writer.write_all(&data(1, 2 * BUFFER_SIZE)).unwrap_err();
+
+        // Otherwise it would try to write forever
+        assert_eq!(ErrorKind::WriteZero, err.kind());
+        assert!(old_data == device.content);
     }
 
     #[test]
