@@ -1,11 +1,13 @@
-use anyhow::Result;
+use anyhow::{ensure, Result};
 use std::fmt::{self, Display, Formatter};
+use std::str::FromStr;
 
 use super::{secure_seed_rng, XSalsa20Rng};
 use crate::byte_stream::{SeekableByteStream, SyncByteStream};
 
 /// The seed that all data of a deterministic wipe is derived from.
-/// It is displayed as 64 hex characters.
+/// It is displayed as, and parsed from, 64 hex characters.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Seed([u8; 32]);
 
 impl Seed {
@@ -23,6 +25,22 @@ impl Display for Seed {
             write!(f, "{byte:02x}")?;
         }
         Ok(())
+    }
+}
+
+impl FromStr for Seed {
+    type Err = anyhow::Error;
+
+    fn from_str(seed: &str) -> Result<Self> {
+        ensure!(
+            seed.len() == 64 && seed.bytes().all(|c| c.is_ascii_hexdigit()),
+            "A seed consists of 64 hex characters, but '{seed}' doesn't"
+        );
+        let mut bytes = [0; 32];
+        for (byte, hex_digits) in bytes.iter_mut().zip(seed.as_bytes().chunks(2)) {
+            *byte = u8::from_str_radix(std::str::from_utf8(hex_digits)?, 16)?;
+        }
+        Ok(Self(bytes))
     }
 }
 
@@ -50,6 +68,44 @@ mod tests {
         seed[1] = 0xab;
         seed[31] = 0xf0;
         assert_eq!(format!("01ab{}f0", "00".repeat(29)), Seed(seed).to_string());
+    }
+
+    #[test]
+    fn seed_is_parsed_from_hex() {
+        let mut seed = [0; 32];
+        seed[0] = 0x01;
+        seed[1] = 0xab;
+        seed[31] = 0xf0;
+        let seed = Seed(seed);
+
+        let lowercase = format!("01ab{}f0", "00".repeat(29));
+        assert_eq!(seed, lowercase.parse().unwrap());
+        assert_eq!(seed, lowercase.to_uppercase().parse().unwrap());
+    }
+
+    #[test]
+    fn displayed_seed_can_be_parsed_again() {
+        let seed = Seed::generate().unwrap();
+        assert_eq!(seed, seed.to_string().parse().unwrap());
+    }
+
+    #[test]
+    fn invalid_seeds_arent_parsed() {
+        let valid = "0123456789abcdef".repeat(4);
+        assert!(valid.parse::<Seed>().is_ok());
+
+        // Too short and too long
+        assert!("".parse::<Seed>().is_err());
+        assert!(valid[..62].parse::<Seed>().is_err());
+        assert!(valid[..63].parse::<Seed>().is_err());
+        assert!(format!("{valid}0").parse::<Seed>().is_err());
+        assert!(format!("{valid}00").parse::<Seed>().is_err());
+
+        // Not hex. That includes signs, which a plain number parser would accept.
+        assert!(valid.replacen('0', "g", 1).parse::<Seed>().is_err());
+        assert!(valid.replacen('0', "+", 1).parse::<Seed>().is_err());
+        assert!(valid.replacen('0', " ", 1).parse::<Seed>().is_err());
+        assert!(valid.replacen("01", "é", 1).parse::<Seed>().is_err());
     }
 
     #[test]

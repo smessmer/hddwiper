@@ -58,14 +58,15 @@ struct Args {
     #[clap(long)]
     disable_rdrand: bool,
 
-    /// Write random data that can be generated again later. For this, hddwiper generates
-    /// a random seed, shows it before it starts to write, and derives all the data it writes
-    /// from that seed and from the position on the device. This makes it possible to check
-    /// later whether the device really stored what was written to it.
-    /// RDRAND isn't used in this mode. Each run generates its own seed, so continuing an
-    /// interrupted run with --skip-bytes writes the rest of the device with a different seed.
-    #[clap(long)]
-    deterministic: bool,
+    /// Write random data that can be generated again later. For this, hddwiper derives all
+    /// the data it writes from a seed and from the position on the device. This makes it
+    /// possible to check later whether the device really stored what was written to it.
+    /// Without a value, hddwiper generates a random seed. Either way, it shows the seed
+    /// before it starts to write. To continue a deterministic wipe that was interrupted,
+    /// pass the seed of that wipe with --deterministic=<SEED>, together with --skip-bytes.
+    /// RDRAND isn't used in this mode.
+    #[clap(long, value_name = "SEED", require_equals = true)]
+    deterministic: Option<Option<random::Seed>>,
 
     /// The file or device to write the random bytes to
     output_file: String,
@@ -86,7 +87,7 @@ fn main() -> Result<()> {
     let skip_bytes = parse_num_bytes(&args.skip_bytes)?;
 
     // A deterministic wipe derives all its data from one seed, so it doesn't produce seeds
-    let seed_producer = if args.deterministic {
+    let seed_producer = if args.deterministic.is_some() {
         None
     } else {
         if args.disable_rdrand {
@@ -113,10 +114,21 @@ fn main() -> Result<()> {
             },
         )?,
         None => {
-            let seed = random::Seed::generate()?;
+            let given_seed = args.deterministic.clone().flatten();
+            let continues_earlier_wipe = given_seed.is_some() && skip_bytes > 0;
+            let seed = match given_seed {
+                Some(seed) => seed,
+                None => random::Seed::generate()?,
+            };
             println!("Seed: {seed}");
             println!("To verify later that the device really stored the data of this run, use:");
             println!("  {}", verify_command(std::env::args(), &seed));
+            if continues_earlier_wipe {
+                println!(
+                    "The data before --skip-bytes isn't part of this run. To verify it as well, \
+                     use the command that the wipe you are continuing showed."
+                );
+            }
             // Each position of the device gets the data the random stream has at that position
             byte_stream::new_seekable_byte_stream_thread_pool_producer(
                 random_generator_block_size as usize,
@@ -172,13 +184,15 @@ fn main() -> Result<()> {
 }
 
 /// The command line that verifies a deterministic wipe. It is the command line the wipe was
-/// started with, but with `--verify <seed>` instead of `--deterministic`, so that the
-/// verification looks at the same device with the same options.
+/// started with, but with `--verify <seed>` instead of `--deterministic` or
+/// `--deterministic=<seed>`, so that the verification looks at the same device with the same
+/// options.
 fn verify_command(wipe_command: impl Iterator<Item = String>, seed: &random::Seed) -> String {
     let mut replaced_deterministic = false;
     let verify_command: Vec<String> = wipe_command
         .flat_map(|arg| {
-            if arg == "--deterministic" && !replaced_deterministic {
+            let is_deterministic = arg == "--deterministic" || arg.starts_with("--deterministic=");
+            if is_deterministic && !replaced_deterministic {
                 replaced_deterministic = true;
                 vec!["--verify".to_string(), seed.to_string()]
             } else {
@@ -228,10 +242,45 @@ mod tests {
     #[test]
     fn test_deterministic_arg() {
         let args = Args::try_parse_from(["hddwiper", "/dev/null"]).unwrap();
-        assert!(!args.deterministic);
+        assert_eq!(None, args.deterministic);
 
+        // Without a seed. What follows is the output file, not a seed.
         let args = Args::try_parse_from(["hddwiper", "--deterministic", "/dev/null"]).unwrap();
-        assert!(args.deterministic);
+        assert_eq!(Some(None), args.deterministic);
+        assert_eq!("/dev/null", args.output_file);
+
+        let args = Args::try_parse_from(["hddwiper", "/dev/null", "--deterministic"]).unwrap();
+        assert_eq!(Some(None), args.deterministic);
+        assert_eq!("/dev/null", args.output_file);
+    }
+
+    #[test]
+    fn test_deterministic_arg_with_seed() {
+        let seed = random::Seed::generate().unwrap();
+
+        let args = Args::try_parse_from([
+            "hddwiper",
+            &format!("--deterministic={seed}"),
+            "--skip-bytes=5G",
+            "/dev/null",
+        ])
+        .unwrap();
+        assert_eq!(Some(Some(seed.clone())), args.deterministic);
+        assert_eq!("/dev/null", args.output_file);
+
+        // A seed has to be valid
+        assert!(Args::try_parse_from(["hddwiper", "--deterministic=1234", "/dev/null"]).is_err());
+        assert!(Args::try_parse_from(["hddwiper", "--deterministic=", "/dev/null"]).is_err());
+
+        // Without the equals sign, the seed would be taken for the output file. This must fail
+        // instead of wiping a file with the name of the seed.
+        assert!(Args::try_parse_from([
+            "hddwiper",
+            "--deterministic",
+            &seed.to_string(),
+            "/dev/null"
+        ])
+        .is_err());
     }
 
     fn verify_command_for(wipe_command: &[&str], seed: &random::Seed) -> String {
@@ -259,6 +308,21 @@ mod tests {
                     "--deterministic",
                     "-u",
                     "3",
+                    "/dev/sdb"
+                ],
+                &seed
+            )
+        );
+
+        // A seed that was passed to the wipe is the one to verify with
+        assert_eq!(
+            format!("hddwiper --verify {seed} --skip-bytes 5G /dev/sdb"),
+            verify_command_for(
+                &[
+                    "hddwiper",
+                    &format!("--deterministic={seed}"),
+                    "--skip-bytes",
+                    "5G",
                     "/dev/sdb"
                 ],
                 &seed
