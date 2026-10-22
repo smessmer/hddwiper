@@ -8,7 +8,6 @@ description = "CLI tool to output a random stream of bytes to a hard drive or pa
 
 [dependencies]
 anyhow = "^1.0.57"
-flume = "^0.10.12"
 rand = "^0.8.5"
 generic-array = "^0.14.5"
 salsa20 = "^0.10.2"

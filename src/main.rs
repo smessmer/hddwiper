@@ -8,7 +8,6 @@ use std::time::Duration;
 
 mod block_writer;
 mod byte_stream;
-mod cancellation_token;
 mod monitor;
 mod producer;
 mod random;
