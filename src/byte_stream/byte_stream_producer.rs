@@ -5,10 +5,11 @@ use crate::byte_stream::{SeekableByteStream, SyncByteStream};
 use crate::producer::ThreadPoolProducer;
 
 /// Creates a [ThreadPoolProducer] from a [SyncByteStream]. Each block is generated in the
-/// memory that `new_block` returns for it, which gets the size of the block.
+/// memory that `new_block` returns for it, which gets the size of the block. The block
+/// overwrites all of that memory, so it doesn't matter what it contains.
 pub fn new_byte_stream_thread_pool_producer<S, B>(
     block_size: usize,
-    new_block: fn(usize) -> B,
+    new_block: impl 'static + Fn(usize) -> B + Clone + Send,
     buffer_num_blocks: usize,
     num_workers: usize,
     make_byte_stream: impl Fn() -> Result<S>,
@@ -19,9 +20,9 @@ where
 {
     ThreadPoolProducer::new(num_workers, buffer_num_blocks, move || {
         let mut byte_stream = make_byte_stream()?;
+        let new_block = new_block.clone();
         // A block is just whatever the byte stream outputs next, no matter the block's index
         Ok(move |_index| {
-            // TODO Can we avoid the zero initialization of the buffer?
             let mut buffer = new_block(block_size);
             byte_stream.blocking_read(&mut buffer).unwrap();
             Ok(buffer)
@@ -33,11 +34,12 @@ where
 /// of the stream, beginning at `start_position`. Since blocks are received in order, a receiver
 /// gets exactly what the stream outputs, no matter how many workers there are. Each block is
 /// generated in the memory that `new_block` returns for it, which gets the size of the block.
+/// The block overwrites all of that memory, so it doesn't matter what it contains.
 ///
 /// For this to work, `make_byte_stream` has to return the same stream each time it is called.
 pub fn new_seekable_byte_stream_thread_pool_producer<S, B>(
     block_size: usize,
-    new_block: fn(usize) -> B,
+    new_block: impl 'static + Fn(usize) -> B + Clone + Send,
     buffer_num_blocks: usize,
     num_workers: usize,
     start_position: u64,
@@ -49,8 +51,8 @@ where
 {
     ThreadPoolProducer::new(num_workers, buffer_num_blocks, move || {
         let mut byte_stream = make_byte_stream()?;
+        let new_block = new_block.clone();
         Ok(move |index: u64| {
-            // TODO Can we avoid the zero initialization of the buffer?
             let mut buffer = new_block(block_size);
             byte_stream.seek(start_position + index * block_size as u64)?;
             byte_stream.blocking_read(&mut buffer)?;
@@ -66,7 +68,8 @@ mod tests {
     use crate::byte_stream::testutils::FakeByteStream;
     use crate::producer::{Producer, ProductReceiver};
     use anyhow::anyhow;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     const NUM_BLOCKS: usize = 20;
 
@@ -235,6 +238,97 @@ mod tests {
                 "Blocks don't begin at position {start_position} of the stream"
             );
         }
+    }
+
+    #[test]
+    fn blocks_dont_depend_on_what_their_memory_contained() {
+        const BLOCK_SIZE: usize = 5000;
+        let expected = stream_blocks(0, BLOCK_SIZE);
+
+        // Memory that was used before, like the memory of a block that is reused
+        let producer = new_byte_stream_thread_pool_producer(
+            BLOCK_SIZE,
+            |size| vec![0xab; size],
+            5,
+            1,
+            || Ok(FakeByteStream::new(0)),
+        )
+        .unwrap();
+        let receiver = producer.make_receiver();
+
+        for (index, expected) in expected.into_iter().enumerate() {
+            assert!(
+                expected == receiver.blocking_get_product().unwrap(),
+                "Wrong data in block {index}"
+            );
+        }
+    }
+
+    #[test]
+    fn seekable_blocks_dont_depend_on_what_their_memory_contained() {
+        const BLOCK_SIZE: usize = 5000;
+        let expected = stream_content(12_345, NUM_BLOCKS * BLOCK_SIZE);
+
+        let producer = new_seekable_byte_stream_thread_pool_producer(
+            BLOCK_SIZE,
+            |size| vec![0xab; size],
+            5,
+            4,
+            12_345,
+            || Ok(FakeByteStream::new(0)),
+        )
+        .unwrap();
+        let receiver = producer.make_receiver();
+
+        for expected in expected.chunks(BLOCK_SIZE) {
+            assert!(expected == &receiver.blocking_get_product().unwrap()[..]);
+        }
+    }
+
+    #[test]
+    fn all_workers_get_their_blocks_from_new_block() {
+        const BLOCK_SIZE: usize = 1000;
+        // Counts the blocks that were created, which only works if the workers share it
+        let num_created = Arc::new(AtomicUsize::new(0));
+        let new_block = {
+            let num_created = Arc::clone(&num_created);
+            move |size| {
+                num_created.fetch_add(1, Ordering::SeqCst);
+                vec![0; size]
+            }
+        };
+
+        let producer = new_seekable_byte_stream_thread_pool_producer(
+            BLOCK_SIZE,
+            new_block.clone(),
+            5,
+            4,
+            0,
+            || Ok(FakeByteStream::new(0)),
+        )
+        .unwrap();
+        let receiver = producer.make_receiver();
+        for _ in 0..NUM_BLOCKS {
+            receiver.blocking_get_product().unwrap();
+        }
+        // Stops the workers, so that no block is created anymore
+        drop(producer);
+        let num_created_by_seekable = num_created.load(Ordering::SeqCst);
+        // Each block that was received was created, and the workers were ahead by no more
+        // than the 5 blocks of the buffer and the one block that each of the 4 can hold
+        assert!((NUM_BLOCKS..=NUM_BLOCKS + 5 + 4).contains(&num_created_by_seekable));
+
+        let producer = new_byte_stream_thread_pool_producer(BLOCK_SIZE, new_block, 5, 4, || {
+            Ok(FakeByteStream::new(0))
+        })
+        .unwrap();
+        let receiver = producer.make_receiver();
+        for _ in 0..NUM_BLOCKS {
+            receiver.blocking_get_product().unwrap();
+        }
+        drop(producer);
+        let num_created = num_created.load(Ordering::SeqCst) - num_created_by_seekable;
+        assert!((NUM_BLOCKS..=NUM_BLOCKS + 5 + 4).contains(&num_created));
     }
 
     #[test]

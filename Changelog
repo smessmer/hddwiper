@@ -14,6 +14,7 @@
 * Write blocks to the device from the memory they were generated in instead of copying them first, which makes wipes of very fast SSDs faster. For this, --blocksize is rounded up to a multiple of 4096 bytes
 * --verify reads the device in a thread of its own and compares the data without copying it first, which makes it more than twice as fast on fast SSDs
 * --verify shows how much data differs and where that begins as soon as it finds it, and not only at the end
+* Reuse the memory of the blocks instead of taking new memory for each block, and on Linux ask for huge pages for the blocks and for the data that is read. This makes wipes and --verify of very fast SSDs faster, because reading and writing takes the system a fraction of the time
 
 2.0.0
 ----------

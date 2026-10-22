@@ -4,7 +4,7 @@ use running_average::RealTimeRunningAverage;
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Write};
 
-use crate::aligned_buffer::AlignedBuffer;
+use crate::block_pool::PooledBlock;
 use crate::block_verifier::MismatchesSoFar;
 use crate::producer::ProductReceiver;
 
@@ -21,7 +21,7 @@ pub struct ProgressInfo {
 pub struct Monitor<M1, M2, F, G>
 where
     M1: ProductReceiver<Vec<u8>>,
-    M2: ProductReceiver<AlignedBuffer>,
+    M2: ProductReceiver<PooledBlock>,
     F: Fn() -> u64,
     G: Fn() -> MismatchesSoFar,
 {
@@ -44,7 +44,7 @@ where
 impl<M1, M2, F, G> Monitor<M1, M2, F, G>
 where
     M1: ProductReceiver<Vec<u8>>,
-    M2: ProductReceiver<AlignedBuffer>,
+    M2: ProductReceiver<PooledBlock>,
     F: Fn() -> u64,
     G: Fn() -> MismatchesSoFar,
 {
