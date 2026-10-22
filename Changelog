@@ -8,6 +8,8 @@
 * Add --deterministic and --verify to check whether a device really stores the data written to it
 * Wait at the end of a wipe until all data is on the device, and fail if it couldn't be written
 * On Linux, --verify reads the data from the device itself and not from the cache of the system
+* On Linux, write to the device itself and not into the cache of the system, which is faster, shows the real progress and reports a failed write at once
+* Fail if a device takes no more data before its end is reached
 
 2.0.0
 ----------

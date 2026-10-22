@@ -1,23 +1,13 @@
 use std::io::{self, Read, Seek, SeekFrom};
 use std::ops::Range;
 
-/// A file that was opened for direct reads only accepts reads that are aligned to the sectors of
-/// its device. The position in the file where a read begins, the number of bytes it asks for and
-/// the address of the memory it reads into all have to be multiples of the sector size.
-/// Sectors commonly have 512 or 4096 bytes, and this is a multiple of both.
-pub const ALIGNMENT: usize = 4096;
+use crate::aligned_buffer::{AlignedBuffer, ALIGNMENT};
 
 /// Reads from a reader that only accepts aligned reads, see [ALIGNMENT]. To do that, it reads
 /// whole buffers from that reader and hands them out in whatever pieces it is asked for.
 pub struct AlignedReader<R> {
     inner: R,
-
-    /// The buffer is a part of this. This has more bytes than the buffer needs, because the
-    /// buffer has to begin at an aligned address, and the memory we get usually doesn't.
-    memory: Vec<u8>,
-
-    /// The part of `memory` that is the buffer
-    buffer: Range<usize>,
+    buffer: AlignedBuffer,
 
     /// The part of the buffer that was read from `inner` and wasn't handed out yet
     remaining: Range<usize>,
@@ -36,22 +26,14 @@ impl<R: Read + Seek> AlignedReader<R> {
     /// bytes at a time, which has to be a multiple of [ALIGNMENT], and begins with that at a
     /// multiple of `buffer_size`. So reads are also aligned for devices with larger sectors.
     pub fn new(mut inner: R, position: u64, buffer_size: usize) -> io::Result<Self> {
-        assert!(
-            buffer_size > 0 && buffer_size % ALIGNMENT == 0,
-            "The buffer size has to be a multiple of {ALIGNMENT}, but is {buffer_size}"
-        );
+        let buffer = AlignedBuffer::new(buffer_size);
 
         let num_bytes_to_skip = (position % buffer_size as u64) as usize;
         inner.seek(SeekFrom::Start(position - num_bytes_to_skip as u64))?;
 
-        let memory = vec![0; buffer_size + ALIGNMENT - 1];
-        let address = memory.as_ptr() as usize;
-        let buffer_start = address.next_multiple_of(ALIGNMENT) - address;
-
         Ok(Self {
             inner,
-            memory,
-            buffer: buffer_start..(buffer_start + buffer_size),
+            buffer,
             remaining: 0..0,
             num_bytes_to_skip,
             at_end: false,
@@ -61,8 +43,7 @@ impl<R: Read + Seek> AlignedReader<R> {
 
 impl<R: Read> AlignedReader<R> {
     fn fill_buffer(&mut self) -> io::Result<()> {
-        let buffer = &mut self.memory[self.buffer.clone()];
-        let num_read = self.inner.read(buffer)?;
+        let num_read = self.inner.read(&mut self.buffer)?;
         // Only the end of a file makes a read stop in the middle of a sector. We also couldn't
         // go on behind it, because the next read wouldn't begin at an aligned position.
         self.at_end = num_read == 0 || num_read % ALIGNMENT != 0;
@@ -80,8 +61,7 @@ impl<R: Read> Read for AlignedReader<R> {
             self.fill_buffer()?;
         }
         let num_bytes = dest.len().min(self.remaining.len());
-        let buffer = &self.memory[self.buffer.clone()];
-        dest[..num_bytes].copy_from_slice(&buffer[self.remaining.start..][..num_bytes]);
+        dest[..num_bytes].copy_from_slice(&self.buffer[self.remaining.start..][..num_bytes]);
         self.remaining.start += num_bytes;
         Ok(num_bytes)
     }
