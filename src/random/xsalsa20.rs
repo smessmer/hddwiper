@@ -1,12 +1,12 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use generic_array::{typenum::U56, GenericArray};
 use salsa20::{
-    cipher::{KeyIvInit, StreamCipher},
+    cipher::{KeyIvInit, StreamCipher, StreamCipherSeek},
     XSalsa20,
 };
 
 use super::reseeding::SeedableRandomGenerator;
-use crate::byte_stream::SyncByteStream;
+use crate::byte_stream::{SeekableByteStream, SyncByteStream};
 
 /// A block source that outputs a XSalsa20 stream
 pub struct XSalsa20Rng {
@@ -18,6 +18,15 @@ pub struct XSalsa20Rng {
 }
 
 impl XSalsa20Rng {
+    /// Generate a random generator from a key alone. The nonce is always the same,
+    /// so the key must not be used for anything else.
+    pub fn from_key(key: &[u8; 32]) -> Self {
+        let nonce = [0u8; 24];
+        Self {
+            rng: XSalsa20::new_from_slices(key, &nonce).unwrap(),
+        }
+    }
+
     /// Generate a random generator from a simple u64 seed.
     /// This isn't secure since XSalsa20 has longer seeds than
     /// 8 bytes
@@ -25,10 +34,7 @@ impl XSalsa20Rng {
     pub fn from_u64_seed(seed: u64) -> Self {
         let mut key = [0u8; 32];
         key[..8].copy_from_slice(&seed.to_le_bytes());
-        let nonce = [0u8; 24];
-        Self {
-            rng: XSalsa20::new_from_slices(&key, &nonce).unwrap(),
-        }
+        Self::from_key(&key)
     }
 }
 
@@ -50,6 +56,16 @@ impl SyncByteStream for XSalsa20Rng {
         dest.fill(0);
         self.rng.apply_keystream(dest);
         Ok(())
+    }
+}
+
+impl SeekableByteStream for XSalsa20Rng {
+    fn seek(&mut self, position: u64) -> Result<()> {
+        // XSalsa20 computes each of its 64 byte blocks from the key and the number of the block,
+        // so this is cheap and doesn't have to generate anything before `position`.
+        self.rng
+            .try_seek(position)
+            .map_err(|_| anyhow!("Position {position} is beyond the end of the XSalsa20 stream"))
     }
 }
 
@@ -82,5 +98,76 @@ mod tests {
         stream2.blocking_read(&mut rhs[100..1000]).unwrap();
         stream2.blocking_read(&mut rhs[1000..1234]).unwrap();
         assert_eq!(lhs, rhs);
+    }
+
+    #[test]
+    fn same_key_generates_same_data() {
+        let mut lhs = [0; 1234];
+        let mut rhs = [0; 1234];
+        XSalsa20Rng::from_key(&[42; 32])
+            .blocking_read(&mut lhs)
+            .unwrap();
+        XSalsa20Rng::from_key(&[42; 32])
+            .blocking_read(&mut rhs)
+            .unwrap();
+        assert_eq!(lhs, rhs);
+    }
+
+    #[test]
+    fn different_keys_generate_different_data() {
+        let mut lhs = [0; 1234];
+        let mut rhs = [0; 1234];
+        XSalsa20Rng::from_key(&[42; 32])
+            .blocking_read(&mut lhs)
+            .unwrap();
+        XSalsa20Rng::from_key(&[43; 32])
+            .blocking_read(&mut rhs)
+            .unwrap();
+        assert_ne!(lhs, rhs);
+    }
+
+    #[test]
+    fn seek_continues_stream_at_position() {
+        let mut expected = [0; 1000];
+        XSalsa20Rng::from_u64_seed(0)
+            .blocking_read(&mut expected)
+            .unwrap();
+
+        // Seek forwards and backwards, to positions on and next to the borders of XSalsa20's 64 byte blocks
+        let mut stream = XSalsa20Rng::from_u64_seed(0);
+        for position in [500, 0, 63, 64, 65, 1, 999, 128] {
+            let mut actual = vec![0; expected.len() - position];
+            stream.seek(position as u64).unwrap();
+            stream.blocking_read(&mut actual).unwrap();
+            assert_eq!(
+                hex::encode(&expected[position..]),
+                hex::encode(actual),
+                "Wrong data after seeking to position {position}"
+            );
+        }
+    }
+
+    #[test]
+    fn stream_doesnt_repeat_after_256_gib() {
+        // XSalsa20 numbers its 64 byte blocks. If it did that with 32 bit, the numbers would
+        // start over at 256 GiB and so would the stream.
+        const POSITION: u64 = (1 << 32) * 64;
+        let mut stream = XSalsa20Rng::from_u64_seed(0);
+
+        let mut across_position = [0; 128];
+        stream.seek(POSITION - 64).unwrap();
+        stream.blocking_read(&mut across_position).unwrap();
+
+        let mut at_position = [0; 64];
+        stream.seek(POSITION).unwrap();
+        stream.blocking_read(&mut at_position).unwrap();
+
+        let mut at_start = [0; 64];
+        stream.seek(0).unwrap();
+        stream.blocking_read(&mut at_start).unwrap();
+
+        // Reading on past the position gives the same data as seeking there
+        assert_eq!(across_position[64..], at_position);
+        assert_ne!(at_start, at_position);
     }
 }
