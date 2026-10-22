@@ -4,6 +4,7 @@ use running_average::RealTimeRunningAverage;
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Write};
 
+use crate::aligned_buffer::AlignedBuffer;
 use crate::producer::ProductReceiver;
 
 const CLEAR_LINE: &str = "\x1b[2K";
@@ -19,7 +20,7 @@ pub struct ProgressInfo {
 pub struct Monitor<M1, M2, F>
 where
     M1: ProductReceiver<Vec<u8>>,
-    M2: ProductReceiver<Vec<u8>>,
+    M2: ProductReceiver<AlignedBuffer>,
     F: Fn() -> u64,
 {
     /// Not everything we monitor produces seeds, so there isn't always a seed buffer to show
@@ -38,7 +39,7 @@ where
 impl<M1, M2, F> Monitor<M1, M2, F>
 where
     M1: ProductReceiver<Vec<u8>>,
-    M2: ProductReceiver<Vec<u8>>,
+    M2: ProductReceiver<AlignedBuffer>,
     F: Fn() -> u64,
 {
     pub fn new(
@@ -398,12 +399,12 @@ mod tests {
     /// A buffer with a fixed number of blocks in it, for a [Monitor] to show
     struct FakeBuffer(usize);
 
-    impl ProductReceiver<Vec<u8>> for FakeBuffer {
-        fn blocking_get_product(&self) -> Result<Vec<u8>> {
+    impl<T> ProductReceiver<T> for FakeBuffer {
+        fn blocking_get_product(&self) -> Result<T> {
             unimplemented!()
         }
 
-        fn get_all_available_products(&self) -> Vec<Vec<u8>> {
+        fn get_all_available_products(&self) -> Vec<T> {
             unimplemented!()
         }
 

@@ -312,6 +312,11 @@ fn sizes_that_make_no_sense_are_rejected() {
             vec!["--blocksize", "0.0001K"],
             "--blocksize has to be larger than zero",
         ),
+        // More than any memory has
+        (
+            vec!["--blocksize", "99999999999T"],
+            "--blocksize is too large",
+        ),
     ] {
         // For a verification and for a wipe, which must not even begin with them
         for mode in [vec!["--verify", SEED], vec![], vec!["--deterministic"]] {

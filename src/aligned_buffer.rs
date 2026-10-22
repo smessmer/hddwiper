@@ -6,8 +6,8 @@ use std::ops::{Deref, DerefMut, Range};
 /// sector size. Sectors commonly have 512 or 4096 bytes, and this is a multiple of both.
 pub const ALIGNMENT: usize = 4096;
 
-/// Memory for aligned reads and writes, see [ALIGNMENT]. Both its address and its size are
-/// aligned.
+/// Memory for aligned reads and writes, see [ALIGNMENT]. Its address is aligned. Whether its
+/// size is aligned as well is up to the one who creates it.
 pub struct AlignedBuffer {
     /// The buffer is a part of this. This has more bytes than the buffer needs, because the
     /// buffer has to begin at an aligned address, and the memory we get usually doesn't.
@@ -18,13 +18,8 @@ pub struct AlignedBuffer {
 }
 
 impl AlignedBuffer {
-    /// Creates a buffer of `size` zeroes. `size` has to be a multiple of [ALIGNMENT].
+    /// Creates a buffer of `size` zeroes
     pub fn new(size: usize) -> Self {
-        assert!(
-            size > 0 && size % ALIGNMENT == 0,
-            "The buffer size has to be a multiple of {ALIGNMENT}, but is {size}"
-        );
-
         let memory = vec![0; size + ALIGNMENT - 1];
         let address = memory.as_ptr() as usize;
         let start = address.next_multiple_of(ALIGNMENT) - address;
@@ -56,16 +51,34 @@ mod tests {
 
     #[test]
     fn has_the_size_and_is_aligned() {
-        // Several of them, because one alone could be aligned by chance
-        let buffers: Vec<AlignedBuffer> = [1, 2, 3, 16, 5, 1, 64]
-            .into_iter()
-            .map(|num_sectors| AlignedBuffer::new(num_sectors * ALIGNMENT))
-            .collect();
+        // Several of them, because one alone could be aligned by chance. Their sizes are and
+        // aren't whole sectors.
+        const SIZES: [usize; 10] = [
+            ALIGNMENT,
+            2 * ALIGNMENT,
+            3 * ALIGNMENT,
+            16 * ALIGNMENT,
+            1,
+            1000,
+            ALIGNMENT - 1,
+            ALIGNMENT + 1,
+            64 * ALIGNMENT,
+            100_000,
+        ];
+        let buffers: Vec<AlignedBuffer> = SIZES.into_iter().map(AlignedBuffer::new).collect();
 
-        for (buffer, num_sectors) in buffers.iter().zip([1, 2, 3, 16, 5, 1, 64]) {
-            assert_eq!(num_sectors * ALIGNMENT, buffer.len());
+        for (buffer, size) in buffers.iter().zip(SIZES) {
+            assert_eq!(size, buffer.len());
             assert_eq!(0, buffer.as_ptr() as usize % ALIGNMENT);
         }
+    }
+
+    #[test]
+    fn can_be_empty() {
+        let buffer = AlignedBuffer::new(0);
+
+        assert!(buffer.is_empty());
+        assert_eq!(0, buffer.as_ptr() as usize % ALIGNMENT);
     }
 
     #[test]
@@ -79,17 +92,5 @@ mod tests {
         assert_eq!(1, buffer[0]);
         assert_eq!(2, buffer[2 * ALIGNMENT - 1]);
         assert!(buffer[1..2 * ALIGNMENT - 1].iter().all(|byte| *byte == 0));
-    }
-
-    #[test]
-    #[should_panic(expected = "The buffer size has to be a multiple of 4096")]
-    fn size_has_to_be_aligned() {
-        AlignedBuffer::new(5000);
-    }
-
-    #[test]
-    #[should_panic(expected = "The buffer size has to be a multiple of 4096")]
-    fn size_must_not_be_zero() {
-        AlignedBuffer::new(0);
     }
 }

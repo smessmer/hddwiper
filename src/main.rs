@@ -5,6 +5,7 @@ use clap::Parser;
 use std::fmt::Write as FmtWrite;
 use std::fs::{File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
+use std::ops::Deref;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -18,6 +19,7 @@ mod monitor;
 mod producer;
 mod random;
 
+use aligned_buffer::{AlignedBuffer, ALIGNMENT};
 use aligned_reader::AlignedReader;
 use aligned_writer::AlignedWriter;
 use block_verifier::{BlockVerifier, VerificationResult};
@@ -30,7 +32,8 @@ const SEED_GENERATOR_BLOCK_SIZE: usize = 256;
 const NUM_SEED_BUFFER_BLOCKS: usize = 256;
 const NUM_SEED_WORKERS: usize = 1;
 
-/// A wipe writes this many bytes to the device at a time, and a verification reads this many
+/// A verification reads this many bytes from the device at a time. A wipe writes its blocks one
+/// at a time, but collects blocks that are smaller than this to writes of this many bytes.
 const DIRECT_IO_SIZE: usize = 4 * 1024 * 1024;
 
 /// The display of what a wipe or a verification is doing gets updated this often
@@ -53,7 +56,9 @@ struct Args {
 
     /// Size of the random blocks that are generated, stored in memory, and in one
     /// go written to the disk. For the allowed option syntax see the skip option
-    /// (example: --blocksize=10.2M)
+    /// (example: --blocksize=10.2M).
+    /// The size is rounded up to a multiple of 4096 bytes. Blocks that are smaller than 4M
+    /// aren't written one by one, but are collected and written 4M at a time.
     /// Warning: With high blocksize, the amount of RAM required goes up. This can
     /// cause the program to be killed.
     #[clap(short, long, default_value_t = String::from("10M"))]
@@ -130,6 +135,7 @@ fn wipe(args: &Args) -> Result<()> {
         }
         Some(byte_stream::new_byte_stream_thread_pool_producer(
             SEED_GENERATOR_BLOCK_SIZE,
+            |size| vec![0; size],
             NUM_SEED_BUFFER_BLOCKS,
             NUM_SEED_WORKERS,
             random::secure_seed_rng,
@@ -139,6 +145,7 @@ fn wipe(args: &Args) -> Result<()> {
     let random_producer = match &seed_producer {
         Some(seed_producer) => byte_stream::new_byte_stream_thread_pool_producer(
             block_size,
+            AlignedBuffer::new,
             args.buffersize as usize,
             num_random_workers(),
             || {
@@ -169,7 +176,7 @@ fn wipe(args: &Args) -> Result<()> {
                 block_size,
                 args.buffersize as usize,
                 num_random_workers(),
-                skip_bytes,
+                first_block_position(skip_bytes, block_size),
             )?
         }
     };
@@ -191,6 +198,7 @@ fn wipe(args: &Args) -> Result<()> {
         random_producer.make_receiver(),
         file,
         skip_bytes,
+        block_size,
         DIRECT_IO_SIZE,
     )?;
 
@@ -263,16 +271,37 @@ fn open_for_wipe(path: &str, with_read_access: bool) -> io::Result<File> {
     options.open(path)
 }
 
-/// Starts to write the blocks from `block_source` to `device`, from `position` on. The device
-/// gets aligned writes of `write_size` bytes, see [AlignedWriter].
-fn start_writing(
-    block_source: impl 'static + ProductReceiver<Vec<u8>> + Send,
+/// The blocks of a wipe are for the parts of the device that begin at multiples of the block
+/// size. This returns where the part begins that `start_position` is in. That is the part that
+/// the first block of a wipe from `start_position` on has to be for.
+///
+/// Blocks consist of whole sectors, see [block_size]. So this way, each of them also begins at a
+/// sector of the device, no matter where the wipe begins. Only such a block can be written to a
+/// device directly from its own memory, see [AlignedWriter].
+fn first_block_position(start_position: u64, block_size: usize) -> u64 {
+    start_position - start_position % block_size as u64
+}
+
+/// Starts to write the blocks from `block_source` to `device`, from `position` on. The blocks
+/// have `block_size` bytes, and the first one is for [first_block_position], so the part of it
+/// that is in front of `position` isn't written.
+///
+/// The device gets aligned writes, see [AlignedWriter]. Blocks that are smaller than
+/// `write_size` bytes are collected to writes of that size.
+fn start_writing<B: 'static + Deref<Target = [u8]>>(
+    block_source: impl 'static + ProductReceiver<B> + Send,
     device: impl 'static + Read + Write + Seek + Send,
     position: u64,
+    block_size: usize,
     write_size: usize,
 ) -> io::Result<BlockWriter> {
     let writer = AlignedWriter::new(device, position, write_size)?;
-    Ok(BlockWriter::new(block_source, writer))
+    let num_bytes_to_skip = position - first_block_position(position, block_size);
+    Ok(BlockWriter::new(
+        block_source,
+        writer,
+        num_bytes_to_skip as usize,
+    ))
 }
 
 /// A wipe ends when the device says that it is full. `end_position` is where that happened.
@@ -468,7 +497,11 @@ fn block_size(args: &Args) -> Result<usize> {
     let block_size = parse_num_bytes(&args.blocksize)? as usize;
     // Blocks without data would never fill the device, nor reach its end
     ensure!(block_size > 0, "--blocksize has to be larger than zero");
-    Ok(block_size)
+    // Blocks have to consist of whole sectors, see [first_block_position]. Nothing else depends
+    // on their exact size.
+    block_size
+        .checked_next_multiple_of(ALIGNMENT)
+        .context("--blocksize is too large")
 }
 
 fn num_random_workers() -> usize {
@@ -487,9 +520,10 @@ fn deterministic_block_producer(
     buffer_num_blocks: usize,
     num_workers: usize,
     start_position: u64,
-) -> Result<ThreadPoolProducer<Vec<u8>>> {
+) -> Result<ThreadPoolProducer<AlignedBuffer>> {
     byte_stream::new_seekable_byte_stream_thread_pool_producer(
         block_size,
+        AlignedBuffer::new,
         buffer_num_blocks,
         num_workers,
         start_position,
@@ -595,6 +629,7 @@ mod tests {
     use super::*;
     use crate::byte_stream::{SeekableByteStream, SyncByteStream};
     use std::io::Cursor;
+    use std::ops::Range;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -995,8 +1030,14 @@ mod tests {
         // /dev/full never has space for anything, so this is a wipe that ends at once
         let file = open_for_wipe("/dev/full", false).unwrap();
         let producer = deterministic_block_producer(&Seed::generate().unwrap(), 1000, 3, 2, 0);
-        let writer =
-            start_writing(producer.unwrap().make_receiver(), file, 0, DIRECT_IO_SIZE).unwrap();
+        let writer = start_writing(
+            producer.unwrap().make_receiver(),
+            file,
+            0,
+            1000,
+            DIRECT_IO_SIZE,
+        )
+        .unwrap();
 
         // The writer ends without failing, and that is all we can see of it
         writer.join();
@@ -1079,13 +1120,64 @@ mod tests {
         assert!(start.elapsed() < Duration::from_secs(100));
     }
 
+    fn block_size_for(blocksize_arg: &str) -> Result<usize> {
+        let blocksize_arg = format!("--blocksize={blocksize_arg}");
+        block_size(&Args::try_parse_from(["hddwiper", &blocksize_arg, "/dev/null"]).unwrap())
+    }
+
     #[test]
     fn test_blocksize_must_not_be_zero() {
-        let args = Args::try_parse_from(["hddwiper", "--blocksize=0", "/dev/null"]).unwrap();
-        assert!(block_size(&args).is_err());
+        assert!(block_size_for("0").is_err());
+        assert!(block_size_for("1").is_ok());
+    }
 
-        let args = Args::try_parse_from(["hddwiper", "--blocksize=1", "/dev/null"]).unwrap();
-        assert_eq!(1, block_size(&args).unwrap());
+    #[test]
+    fn test_blocksize_is_rounded_up_to_whole_sectors() {
+        assert_eq!(4096, block_size_for("1").unwrap());
+        assert_eq!(4096, block_size_for("4095").unwrap());
+        assert_eq!(4096, block_size_for("4096").unwrap());
+        assert_eq!(8192, block_size_for("4097").unwrap());
+        assert_eq!(1024 * 1024, block_size_for("1M").unwrap());
+        assert_eq!(10 * 1024 * 1024, block_size_for("10M").unwrap());
+        // The example of the help text, which is 10695475.2 bytes
+        assert_eq!(10_698_752, block_size_for("10.2M").unwrap());
+        assert_eq!(0, block_size_for("10.2M").unwrap() % 4096);
+    }
+
+    #[test]
+    fn test_blocksize_must_not_be_too_large_to_round_it() {
+        assert_eq!(
+            "--blocksize is too large",
+            block_size_for("99999999999T").unwrap_err().to_string()
+        );
+    }
+
+    #[test]
+    fn test_default_blocksize_is_written_without_collecting_it() {
+        let args = Args::try_parse_from(["hddwiper", "/dev/null"]).unwrap();
+        let block_size = block_size(&args).unwrap();
+
+        // Otherwise the blocks would be copied on their way to the device
+        assert_eq!(0, block_size % aligned_buffer::ALIGNMENT);
+        assert!(block_size >= DIRECT_IO_SIZE);
+    }
+
+    #[test]
+    fn test_first_block_position() {
+        const BLOCK_SIZE: usize = 8192;
+
+        assert_eq!(0, first_block_position(0, BLOCK_SIZE));
+        assert_eq!(0, first_block_position(1, BLOCK_SIZE));
+        assert_eq!(0, first_block_position(8191, BLOCK_SIZE));
+        assert_eq!(8192, first_block_position(8192, BLOCK_SIZE));
+        assert_eq!(8192, first_block_position(8193, BLOCK_SIZE));
+        assert_eq!(8192, first_block_position(12_288, BLOCK_SIZE));
+        assert_eq!(81_920, first_block_position(90_000, BLOCK_SIZE));
+        // Far behind what 32 bit can count
+        assert_eq!(
+            (1 << 45) + 8192,
+            first_block_position((1 << 45) + 10_000, BLOCK_SIZE)
+        );
     }
 
     #[test]
@@ -1148,6 +1240,13 @@ mod tests {
         kind: DeviceKind,
         claimed_size: usize,
         storage: Arc<Mutex<Vec<u8>>>,
+
+        /// Whether it only accepts aligned reads and writes, like a device that was opened for
+        /// direct reads and writes
+        needs_alignment: bool,
+
+        /// The positions that each write wrote to
+        writes: Arc<Mutex<Vec<Range<usize>>>>,
     }
 
     impl MemoryDevice {
@@ -1162,6 +1261,17 @@ mod tests {
                 kind,
                 claimed_size,
                 storage: Arc::new(Mutex::new(vec![0; real_size])),
+                needs_alignment: false,
+                writes: Arc::new(Mutex::new(vec![])),
+            }
+        }
+
+        /// A device that stores everything, but only accepts aligned reads and writes
+        fn that_needs_alignment(size: usize) -> Self {
+            assert_eq!(0, size % aligned_buffer::ALIGNMENT);
+            Self {
+                needs_alignment: true,
+                ..Self::new(DeviceKind::Honest, size)
             }
         }
 
@@ -1199,8 +1309,19 @@ mod tests {
         position: usize,
     }
 
+    impl MemoryDeviceFile {
+        fn assert_is_aligned_if_needed(&self, data: &[u8]) {
+            if self.device.needs_alignment {
+                assert_eq!(0, self.position % aligned_buffer::ALIGNMENT);
+                assert_eq!(0, data.len() % aligned_buffer::ALIGNMENT);
+                assert_eq!(0, data.as_ptr() as usize % aligned_buffer::ALIGNMENT);
+            }
+        }
+    }
+
     impl Read for MemoryDeviceFile {
         fn read(&mut self, dest: &mut [u8]) -> io::Result<usize> {
+            self.assert_is_aligned_if_needed(dest);
             let content = self.device.content();
             let remaining = &content[self.position.min(content.len())..];
             let len = dest.len().min(remaining.len());
@@ -1224,6 +1345,7 @@ mod tests {
 
     impl Write for MemoryDeviceFile {
         fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+            self.assert_is_aligned_if_needed(data);
             if self.position >= self.device.claimed_size {
                 return Err(io::Error::new(ErrorKind::StorageFull, "Device is full"));
             }
@@ -1235,6 +1357,8 @@ mod tests {
                     storage[storage_position] = *byte;
                 }
             }
+            let written = self.position..self.position + len;
+            self.device.writes.lock().unwrap().push(written);
             self.position += len;
             Ok(len)
         }
@@ -1255,12 +1379,19 @@ mod tests {
         // The devices are small, so that only small writes make it many writes
         const WRITE_SIZE: usize = 2 * aligned_buffer::ALIGNMENT;
 
-        let producer =
-            deterministic_block_producer(seed, block_size, 3, num_workers, skip_bytes).unwrap();
+        let producer = deterministic_block_producer(
+            seed,
+            block_size,
+            3,
+            num_workers,
+            first_block_position(skip_bytes, block_size),
+        )
+        .unwrap();
         let writer = start_writing(
             producer.make_receiver(),
             device.file(),
             skip_bytes,
+            block_size,
             WRITE_SIZE,
         )
         .unwrap();
@@ -1310,6 +1441,14 @@ mod tests {
             (33_333, 3, 0),
             (200_000, 2, 0),
             (1000, 4, 12_345),
+            // Blocks of whole sectors that are large enough to be written as they are, in
+            // wipes that begin with a block, within a block and within a sector
+            (8192, 4, 0),
+            (16_384, 3, 0),
+            (16_384, 3, 32_768),
+            (16_384, 3, 20_480),
+            (8192, 4, 12_345),
+            (65_536, 2, 70_000),
         ] {
             let device = MemoryDevice::new(DeviceKind::Honest, DEVICE_SIZE);
 
@@ -1332,18 +1471,70 @@ mod tests {
         // At the beginning of a sector, and within one. The beginning of that one is written
         // again, and has to stay as it is.
         for skip_bytes in [8192, 12_345, 99_999] {
-            let device = MemoryDevice::new(DeviceKind::Honest, DEVICE_SIZE);
-            wipe_deterministically(&device, &first_seed, 1000, 4, 0);
+            // Blocks that are collected, and blocks that are written as they are
+            for block_size in [1000, 16_384] {
+                let device = MemoryDevice::new(DeviceKind::Honest, DEVICE_SIZE);
+                wipe_deterministically(&device, &first_seed, 1000, 4, 0);
 
-            wipe_deterministically(&device, &second_seed, 1000, 4, skip_bytes as u64);
+                wipe_deterministically(&device, &second_seed, block_size, 4, skip_bytes as u64);
 
-            let mut expected = data_of_seed(&first_seed, 0, DEVICE_SIZE);
-            expected[skip_bytes..].copy_from_slice(
-                &data_of_seed(&second_seed, skip_bytes, DEVICE_SIZE)[skip_bytes..],
-            );
+                let mut expected = data_of_seed(&first_seed, 0, DEVICE_SIZE);
+                expected[skip_bytes..].copy_from_slice(
+                    &data_of_seed(&second_seed, skip_bytes, DEVICE_SIZE)[skip_bytes..],
+                );
+                assert!(
+                    expected == device.content(),
+                    "Wrong data after a wipe that skipped {skip_bytes} bytes, with blocks of \
+                     {block_size} bytes"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_wipe_writes_blocks_of_whole_sectors_as_they_are() {
+        // Larger than the writes that smaller blocks are collected to in these tests
+        const BLOCK_SIZE: usize = 4 * aligned_buffer::ALIGNMENT;
+        // It ends within a block
+        const DEVICE_SIZE: usize = 10 * BLOCK_SIZE + 2 * aligned_buffer::ALIGNMENT;
+        let seed = Seed::generate().unwrap();
+
+        // Wipes that begin with a block, within a block at a sector, and within a sector
+        for skip_bytes in [
+            0,
+            3 * BLOCK_SIZE,
+            aligned_buffer::ALIGNMENT,
+            2 * BLOCK_SIZE + 3 * aligned_buffer::ALIGNMENT,
+            12_345,
+            5 * BLOCK_SIZE + 1,
+            6 * BLOCK_SIZE - 1,
+        ] {
+            let device = MemoryDevice::that_needs_alignment(DEVICE_SIZE);
+
+            wipe_deterministically(&device, &seed, BLOCK_SIZE, 4, skip_bytes as u64);
+
             assert!(
-                expected == device.content(),
+                data_of_seed(&seed, skip_bytes, DEVICE_SIZE) == device.content(),
                 "Wrong data after a wipe that skipped {skip_bytes} bytes"
+            );
+            // Behind the first block, each write is for one whole block, and the last write
+            // for as much of its block as the device has space for. Writes that collected the
+            // data wouldn't have this size.
+            let second_block_position =
+                first_block_position(skip_bytes as u64, BLOCK_SIZE) as usize + BLOCK_SIZE;
+            let expected_writes: Vec<Range<usize>> = (second_block_position..DEVICE_SIZE)
+                .step_by(BLOCK_SIZE)
+                .map(|position| position..(position + BLOCK_SIZE).min(DEVICE_SIZE))
+                .collect();
+            let writes = device.writes.lock().unwrap();
+            let writes_behind_first_block: Vec<Range<usize>> = writes
+                .iter()
+                .filter(|write| write.start >= second_block_position)
+                .cloned()
+                .collect();
+            assert_eq!(
+                expected_writes, writes_behind_first_block,
+                "Wrong writes after skipping {skip_bytes} bytes"
             );
         }
     }
