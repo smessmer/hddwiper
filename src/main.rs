@@ -2,19 +2,24 @@
 
 use anyhow::{ensure, Result};
 use clap::Parser;
+use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::io::{Seek, SeekFrom};
+use std::process::ExitCode;
 use std::time::Duration;
 
+mod block_verifier;
 mod block_writer;
 mod byte_stream;
 mod monitor;
 mod producer;
 mod random;
 
+use block_verifier::{BlockVerifier, VerificationResult};
 use block_writer::BlockWriter;
 use monitor::{Monitor, ProgressInfo};
-use producer::Producer;
+use producer::{Producer, ThreadPoolProducer, ThreadPoolProductReceiver};
+use random::Seed;
 
 const SEED_GENERATOR_BLOCK_SIZE: usize = 256;
 const NUM_SEED_BUFFER_BLOCKS: usize = 256;
@@ -60,30 +65,47 @@ struct Args {
 
     /// Write random data that can be generated again later. For this, hddwiper derives all
     /// the data it writes from a seed and from the position on the device. This makes it
-    /// possible to check later whether the device really stored what was written to it.
-    /// Without a value, hddwiper generates a random seed. Either way, it shows the seed
-    /// before it starts to write. To continue a deterministic wipe that was interrupted,
-    /// pass the seed of that wipe with --deterministic=<SEED>, together with --skip-bytes.
+    /// possible to check later whether the device really stored what was written to it,
+    /// see --verify. Without a value, hddwiper generates a random seed. Either way, it shows
+    /// the seed before it starts to write, together with the command that verifies the wipe.
+    /// To continue a deterministic wipe that was interrupted, pass the seed of that wipe
+    /// with --deterministic=<SEED>, together with --skip-bytes.
     /// RDRAND isn't used in this mode.
     #[clap(long, value_name = "SEED", require_equals = true)]
-    deterministic: Option<Option<random::Seed>>,
+    deterministic: Option<Option<Seed>>,
 
-    /// The file or device to write the random bytes to
+    /// Don't write anything, but check whether the device contains the data that a wipe with
+    /// --deterministic wrote to it. The seed is the one that this wipe showed when it
+    /// started. hddwiper reads the device from --skip-bytes to its end, compares it with the
+    /// data that belongs to the seed, and lists the parts that differ. A device that doesn't
+    /// return the data didn't store it, for example because it is defective or because it
+    /// has less capacity than it claims to have.
+    #[clap(long, value_name = "SEED", conflicts_with = "deterministic")]
+    verify: Option<Seed>,
+
+    /// The file or device to write the random bytes to, or to verify
     output_file: String,
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<ExitCode> {
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
 
     let args = Args::parse();
 
-    let num_random_workers = std::thread::available_parallelism()
-        .map(|v| v.get())
-        .unwrap_or(2);
+    match &args.verify {
+        Some(seed) => verify(&args, seed),
+        None => {
+            wipe(&args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
 
-    let random_generator_block_size = parse_num_bytes(&args.blocksize)?;
+/// Writes random data to the output file until it is full
+fn wipe(args: &Args) -> Result<()> {
+    let block_size = block_size(args)?;
     let skip_bytes = parse_num_bytes(&args.skip_bytes)?;
 
     // A deterministic wipe derives all its data from one seed, so it doesn't produce seeds
@@ -103,9 +125,9 @@ fn main() -> Result<()> {
 
     let random_producer = match &seed_producer {
         Some(seed_producer) => byte_stream::new_byte_stream_thread_pool_producer(
-            random_generator_block_size as usize,
+            block_size,
             args.buffersize as usize,
-            num_random_workers,
+            num_random_workers(),
             || {
                 Ok(random::secure_rng(
                     byte_stream::byte_stream_from_producer(seed_producer.make_receiver()),
@@ -118,7 +140,7 @@ fn main() -> Result<()> {
             let continues_earlier_wipe = given_seed.is_some() && skip_bytes > 0;
             let seed = match given_seed {
                 Some(seed) => seed,
-                None => random::Seed::generate()?,
+                None => Seed::generate()?,
             };
             println!("Seed: {seed}");
             println!("To verify later that the device really stored the data of this run, use:");
@@ -129,13 +151,12 @@ fn main() -> Result<()> {
                      use the command that the wipe you are continuing showed."
                 );
             }
-            // Each position of the device gets the data the random stream has at that position
-            byte_stream::new_seekable_byte_stream_thread_pool_producer(
-                random_generator_block_size as usize,
+            deterministic_block_producer(
+                &seed,
+                block_size,
                 args.buffersize as usize,
-                num_random_workers,
+                num_random_workers(),
                 skip_bytes,
-                || Ok(random::deterministic_rng(&seed)),
             )?
         }
     };
@@ -166,7 +187,8 @@ fn main() -> Result<()> {
             .as_ref()
             .map(|seed_producer| seed_producer.make_receiver()),
         random_monitor,
-        &writer,
+        "Written:",
+        || writer.num_bytes_written(),
         progress_info,
     );
 
@@ -183,13 +205,138 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// The command line that verifies a deterministic wipe. It is the command line the wipe was
-/// started with, but with `--verify <seed>` instead of `--deterministic` or
+/// Checks whether the output file contains the data of a deterministic wipe with `seed`.
+/// The exit code says whether it does.
+fn verify(args: &Args, seed: &Seed) -> Result<ExitCode> {
+    let block_size = block_size(args)?;
+    let skip_bytes = parse_num_bytes(&args.skip_bytes)?;
+
+    let mut file = File::open(&args.output_file)?;
+    let device_size = file.seek(SeekFrom::End(0))?;
+    ensure!(
+        skip_bytes < device_size,
+        "There is nothing to verify, because --skip-bytes isn't smaller than the size of {}, \
+         which is {device_size} bytes",
+        args.output_file
+    );
+    file.seek(SeekFrom::Start(skip_bytes))?;
+
+    let random_producer = deterministic_block_producer(
+        seed,
+        block_size,
+        args.buffersize as usize,
+        num_random_workers(),
+        skip_bytes,
+    )?;
+    let verifier = BlockVerifier::new(random_producer.make_receiver(), file, skip_bytes);
+
+    // Verification doesn't produce seeds, so there is no seed buffer to show
+    let seed_monitor: Option<ThreadPoolProductReceiver<Vec<u8>>> = None;
+    let mut monitor = Monitor::new(
+        seed_monitor,
+        random_producer.make_receiver(),
+        "Verified:",
+        || verifier.num_bytes_verified(),
+        Some(ProgressInfo {
+            device_size,
+            skip_bytes,
+        }),
+    );
+
+    while !verifier.is_finished() {
+        monitor.display()?;
+
+        std::thread::sleep(Duration::from_secs(1));
+    }
+
+    let result = verifier.join()?;
+    // Otherwise we would call a device fine that didn't return all of its data
+    ensure!(
+        result.num_bytes_verified >= device_size - skip_bytes,
+        "{} ended after {} bytes, although its size is {device_size} bytes",
+        args.output_file,
+        skip_bytes + result.num_bytes_verified
+    );
+    println!("\n{}", format_verification_result(&result));
+
+    Ok(if result.num_bytes_mismatched == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
+
+fn block_size(args: &Args) -> Result<usize> {
+    let block_size = parse_num_bytes(&args.blocksize)? as usize;
+    // Blocks without data would never fill the device, nor reach its end
+    ensure!(block_size > 0, "--blocksize has to be larger than zero");
+    Ok(block_size)
+}
+
+fn num_random_workers() -> usize {
+    std::thread::available_parallelism()
+        .map(|v| v.get())
+        .unwrap_or(2)
+}
+
+/// Produces the blocks of a deterministic wipe with `seed`, beginning with the block for
+/// `start_position` on the device. Each position of the device gets the data that the random
+/// stream of the seed has at the same position. A wipe and its verification both take their
+/// blocks from here, which is what makes them agree on the data.
+fn deterministic_block_producer(
+    seed: &Seed,
+    block_size: usize,
+    buffer_num_blocks: usize,
+    num_workers: usize,
+    start_position: u64,
+) -> Result<ThreadPoolProducer<Vec<u8>>> {
+    byte_stream::new_seekable_byte_stream_thread_pool_producer(
+        block_size,
+        buffer_num_blocks,
+        num_workers,
+        start_position,
+        || Ok(random::deterministic_rng(seed)),
+    )
+}
+
+/// What we tell the user when a verification is finished
+fn format_verification_result(result: &VerificationResult) -> String {
+    const GB: f64 = (1024 * 1024 * 1024) as f64;
+    let verified_gb = result.num_bytes_verified as f64 / GB;
+
+    if result.num_bytes_mismatched == 0 {
+        return format!(
+            "Verification successful: All {} bytes ({verified_gb:.2} GB) are the data that was \
+             written.",
+            result.num_bytes_verified
+        );
+    }
+
+    let mut message = format!(
+        "Verification FAILED: {} of {} bytes ({:.2} of {verified_gb:.2} GB) are in sectors that \
+         don't contain the data that was written.\n\
+         These parts of the device differ (first to last byte):",
+        result.num_bytes_mismatched,
+        result.num_bytes_verified,
+        result.num_bytes_mismatched as f64 / GB,
+    );
+    for mismatch in &result.first_mismatches {
+        write!(message, "\n  {} - {}", mismatch.start, mismatch.end - 1).unwrap();
+    }
+    let num_not_listed = result.num_mismatches - result.first_mismatches.len() as u64;
+    if num_not_listed > 0 {
+        write!(message, "\n  ... and {num_not_listed} more").unwrap();
+    }
+    message
+}
+
+/// The arguments of the command line that verifies a deterministic wipe. They are the arguments
+/// the wipe was started with, but with `--verify <seed>` instead of `--deterministic` or
 /// `--deterministic=<seed>`, so that the verification looks at the same device with the same
 /// options.
-fn verify_command(wipe_command: impl Iterator<Item = String>, seed: &random::Seed) -> String {
+fn verify_args(wipe_args: impl Iterator<Item = String>, seed: &Seed) -> Vec<String> {
     let mut replaced_deterministic = false;
-    let verify_command: Vec<String> = wipe_command
+    wipe_args
         .flat_map(|arg| {
             let is_deterministic = arg == "--deterministic" || arg.starts_with("--deterministic=");
             if is_deterministic && !replaced_deterministic {
@@ -199,9 +346,16 @@ fn verify_command(wipe_command: impl Iterator<Item = String>, seed: &random::See
                 vec![arg]
             }
         })
-        .map(|arg| shell_quote(&arg))
+        .collect()
+}
+
+/// The command line of [verify_args], in a form that can be pasted into a shell
+fn verify_command(wipe_args: impl Iterator<Item = String>, seed: &Seed) -> String {
+    let verify_args: Vec<String> = verify_args(wipe_args, seed)
+        .iter()
+        .map(|arg| shell_quote(arg))
         .collect();
-    verify_command.join(" ")
+    verify_args.join(" ")
 }
 
 /// Quotes `arg` so that a POSIX shell takes it as one argument with exactly this content
@@ -237,7 +391,13 @@ fn parse_num_bytes(value: &str) -> Result<u64> {
 
 #[cfg(test)]
 mod tests {
+    // The lists of mismatches we expect often have exactly one range, which clippy takes for a mistake
+    #![allow(clippy::single_range_in_vec_init)]
+
     use super::*;
+    use crate::byte_stream::{SeekableByteStream, SyncByteStream};
+    use std::io::{self, Cursor, ErrorKind, Write};
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_deterministic_arg() {
@@ -349,6 +509,420 @@ mod tests {
                 &["/my tools/hddwiper", "--deterministic", "/mnt/it's a file"],
                 &seed
             )
+        );
+    }
+
+    #[test]
+    fn test_verify_arg() {
+        let seed = Seed::generate().unwrap();
+
+        let args = Args::try_parse_from(["hddwiper", "/dev/null"]).unwrap();
+        assert_eq!(None, args.verify);
+
+        let args =
+            Args::try_parse_from(["hddwiper", "--verify", &seed.to_string(), "/dev/null"]).unwrap();
+        assert_eq!(Some(seed.clone()), args.verify);
+        assert_eq!("/dev/null", args.output_file);
+
+        let args =
+            Args::try_parse_from(["hddwiper", &format!("--verify={seed}"), "/dev/null"]).unwrap();
+        assert_eq!(Some(seed.clone()), args.verify);
+
+        // It needs a valid seed
+        assert!(Args::try_parse_from(["hddwiper", "--verify", "/dev/null"]).is_err());
+        assert!(Args::try_parse_from(["hddwiper", "--verify", "1234", "/dev/null"]).is_err());
+
+        // Writing and verifying at the same time isn't possible
+        assert!(Args::try_parse_from([
+            "hddwiper",
+            "--deterministic",
+            "--verify",
+            &seed.to_string(),
+            "/dev/null"
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn test_verify_command_is_understood() {
+        let seed = Seed::generate().unwrap();
+        let wipe_commands = [
+            vec![
+                "hddwiper".to_string(),
+                "--deterministic".to_string(),
+                "/dev/sdb".to_string(),
+            ],
+            vec![
+                "./hddwiper".to_string(),
+                "--blocksize=1M".to_string(),
+                format!("--deterministic={seed}"),
+                "-s".to_string(),
+                "5G".to_string(),
+                "--disable-rdrand".to_string(),
+                "-u".to_string(),
+                "3".to_string(),
+                "/mnt/it's a file".to_string(),
+            ],
+        ];
+
+        for wipe_command in wipe_commands {
+            let wipe_args = Args::try_parse_from(&wipe_command).unwrap();
+            let verify_args =
+                Args::try_parse_from(verify_args(wipe_command.into_iter(), &seed)).unwrap();
+
+            // It verifies the same device with the same options
+            assert_eq!(Some(seed.clone()), verify_args.verify);
+            assert_eq!(None, verify_args.deterministic);
+            assert_eq!(wipe_args.output_file, verify_args.output_file);
+            assert_eq!(wipe_args.skip_bytes, verify_args.skip_bytes);
+            assert_eq!(wipe_args.blocksize, verify_args.blocksize);
+            assert_eq!(wipe_args.buffersize, verify_args.buffersize);
+        }
+    }
+
+    #[test]
+    fn test_blocksize_must_not_be_zero() {
+        let args = Args::try_parse_from(["hddwiper", "--blocksize=0", "/dev/null"]).unwrap();
+        assert!(block_size(&args).is_err());
+
+        let args = Args::try_parse_from(["hddwiper", "--blocksize=1", "/dev/null"]).unwrap();
+        assert_eq!(1, block_size(&args).unwrap());
+    }
+
+    #[test]
+    fn test_format_verification_result() {
+        assert_eq!(
+            "Verification successful: All 3221225472 bytes (3.00 GB) are the data that was written.",
+            format_verification_result(&VerificationResult {
+                num_bytes_verified: 3 * 1024 * 1024 * 1024,
+                num_bytes_mismatched: 0,
+                num_mismatches: 0,
+                first_mismatches: vec![],
+            })
+        );
+
+        assert_eq!(
+            "Verification FAILED: 2147487744 of 3221225472 bytes (2.00 of 3.00 GB) are in sectors \
+             that don't contain the data that was written.\n\
+             These parts of the device differ (first to last byte):\n  \
+             4096 - 8191\n  \
+             1073741824 - 3221225471",
+            format_verification_result(&VerificationResult {
+                num_bytes_verified: 3 * 1024 * 1024 * 1024,
+                num_bytes_mismatched: 2 * 1024 * 1024 * 1024 + 4096,
+                num_mismatches: 2,
+                first_mismatches: vec![4096..8192, 1024 * 1024 * 1024..3 * 1024 * 1024 * 1024],
+            })
+        );
+
+        // Not all mismatches are listed
+        assert_eq!(
+            "Verification FAILED: 20480 of 3221225472 bytes (0.00 of 3.00 GB) are in sectors \
+             that don't contain the data that was written.\n\
+             These parts of the device differ (first to last byte):\n  \
+             4096 - 8191\n  \
+             ... and 4 more",
+            format_verification_result(&VerificationResult {
+                num_bytes_verified: 3 * 1024 * 1024 * 1024,
+                num_bytes_mismatched: 5 * 4096,
+                num_mismatches: 5,
+                first_mismatches: vec![4096..8192],
+            })
+        );
+    }
+
+    /// How a [MemoryDevice] treats what is written to it
+    #[derive(Clone, Copy)]
+    enum DeviceKind {
+        /// It stores everything
+        Honest,
+        /// It only has storage for `real_size` bytes and starts over at its beginning when
+        /// more is written to it. That is what many devices with a faked capacity do.
+        WrapsAround { real_size: usize },
+        /// It only has storage for `real_size` bytes and ignores what is written beyond that
+        DropsWrites { real_size: usize },
+    }
+
+    /// A device in memory that claims to have a size of `claimed_size` bytes
+    #[derive(Clone)]
+    struct MemoryDevice {
+        kind: DeviceKind,
+        claimed_size: usize,
+        storage: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl MemoryDevice {
+        fn new(kind: DeviceKind, claimed_size: usize) -> Self {
+            let real_size = match kind {
+                DeviceKind::Honest => claimed_size,
+                DeviceKind::WrapsAround { real_size } | DeviceKind::DropsWrites { real_size } => {
+                    real_size
+                }
+            };
+            Self {
+                kind,
+                claimed_size,
+                storage: Arc::new(Mutex::new(vec![0; real_size])),
+            }
+        }
+
+        /// Where the byte at `position` of the device is in the storage, if it is stored at all
+        fn storage_position(&self, position: usize) -> Option<usize> {
+            match self.kind {
+                DeviceKind::Honest => Some(position),
+                DeviceKind::WrapsAround { real_size } => Some(position % real_size),
+                DeviceKind::DropsWrites { real_size } => (position < real_size).then_some(position),
+            }
+        }
+
+        fn writer_at(&self, position: usize) -> MemoryDeviceWriter {
+            MemoryDeviceWriter {
+                device: self.clone(),
+                position,
+            }
+        }
+
+        /// What reading the whole device returns
+        fn content(&self) -> Vec<u8> {
+            let storage = self.storage.lock().unwrap();
+            (0..self.claimed_size)
+                .map(|position| {
+                    self.storage_position(position)
+                        .map_or(0, |storage_position| storage[storage_position])
+                })
+                .collect()
+        }
+    }
+
+    struct MemoryDeviceWriter {
+        device: MemoryDevice,
+        position: usize,
+    }
+
+    impl Write for MemoryDeviceWriter {
+        fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+            if self.position == self.device.claimed_size {
+                return Err(io::Error::new(ErrorKind::StorageFull, "Device is full"));
+            }
+            let len = data.len().min(self.device.claimed_size - self.position);
+            let mut storage = self.device.storage.lock().unwrap();
+            for (offset, byte) in data[..len].iter().enumerate() {
+                if let Some(storage_position) = self.device.storage_position(self.position + offset)
+                {
+                    storage[storage_position] = *byte;
+                }
+            }
+            self.position += len;
+            Ok(len)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Does what a deterministic wipe does, with `device` instead of a file
+    fn wipe_deterministically(
+        device: &MemoryDevice,
+        seed: &Seed,
+        block_size: usize,
+        num_workers: usize,
+        skip_bytes: u64,
+    ) {
+        let producer =
+            deterministic_block_producer(seed, block_size, 3, num_workers, skip_bytes).unwrap();
+        let writer = BlockWriter::new(
+            producer.make_receiver(),
+            device.writer_at(skip_bytes as usize),
+        );
+        while !writer.is_finished() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        writer.join();
+    }
+
+    /// Does what a verification does, with `device` instead of a file
+    fn verify_device(
+        device: &MemoryDevice,
+        seed: &Seed,
+        block_size: usize,
+        num_workers: usize,
+        skip_bytes: u64,
+    ) -> VerificationResult {
+        let producer =
+            deterministic_block_producer(seed, block_size, 3, num_workers, skip_bytes).unwrap();
+        let mut reader = Cursor::new(device.content());
+        reader.set_position(skip_bytes);
+        BlockVerifier::new(producer.make_receiver(), reader, skip_bytes)
+            .join()
+            .unwrap()
+    }
+
+    /// The random stream of `seed` from position `skip_bytes` on, and zeroes before that
+    fn data_of_seed(seed: &Seed, skip_bytes: usize, size: usize) -> Vec<u8> {
+        let mut data = vec![0; size];
+        let mut rng = random::deterministic_rng(seed);
+        rng.seek(skip_bytes as u64).unwrap();
+        rng.blocking_read(&mut data[skip_bytes..]).unwrap();
+        data
+    }
+
+    #[test]
+    fn test_deterministic_wipe_writes_data_of_seed() {
+        // Not a multiple of any of the block sizes, so the last block doesn't fit
+        const DEVICE_SIZE: usize = 100_003;
+        let seed = Seed::generate().unwrap();
+
+        // Small blocks, so that many of them are written and their order matters
+        for (block_size, num_workers, skip_bytes) in [
+            (1000, 1, 0),
+            (1000, 4, 0),
+            (4096, 7, 0),
+            (33_333, 3, 0),
+            (200_000, 2, 0),
+            (1000, 4, 12_345),
+        ] {
+            let device = MemoryDevice::new(DeviceKind::Honest, DEVICE_SIZE);
+
+            wipe_deterministically(&device, &seed, block_size, num_workers, skip_bytes);
+
+            assert!(
+                data_of_seed(&seed, skip_bytes as usize, DEVICE_SIZE) == device.content(),
+                "Wrong data with block size {block_size}, {num_workers} workers and {skip_bytes} \
+                 skipped bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn test_verify_succeeds_for_wiped_device() {
+        const DEVICE_SIZE: usize = 100_003;
+        let seed = Seed::generate().unwrap();
+        let device = MemoryDevice::new(DeviceKind::Honest, DEVICE_SIZE);
+
+        wipe_deterministically(&device, &seed, 1000, 4, 0);
+
+        // It doesn't have to use the block size and the number of workers of the wipe
+        for (block_size, num_workers) in [(1000, 4), (4096, 1), (77_777, 3)] {
+            assert_eq!(
+                VerificationResult {
+                    num_bytes_verified: DEVICE_SIZE as u64,
+                    num_bytes_mismatched: 0,
+                    num_mismatches: 0,
+                    first_mismatches: vec![],
+                },
+                verify_device(&device, &seed, block_size, num_workers, 0)
+            );
+        }
+    }
+
+    #[test]
+    fn test_verify_with_skip_bytes() {
+        const DEVICE_SIZE: usize = 100_003;
+        const SKIP_BYTES: u64 = 12_345;
+        let seed = Seed::generate().unwrap();
+        let device = MemoryDevice::new(DeviceKind::Honest, DEVICE_SIZE);
+
+        wipe_deterministically(&device, &seed, 1000, 4, SKIP_BYTES);
+
+        // What was written is fine
+        assert_eq!(
+            VerificationResult {
+                num_bytes_verified: DEVICE_SIZE as u64 - SKIP_BYTES,
+                num_bytes_mismatched: 0,
+                num_mismatches: 0,
+                first_mismatches: vec![],
+            },
+            verify_device(&device, &seed, 1000, 4, SKIP_BYTES)
+        );
+
+        // What was skipped isn't. The mismatch includes the whole sector the wipe started in.
+        assert_eq!(
+            VerificationResult {
+                num_bytes_verified: DEVICE_SIZE as u64,
+                num_bytes_mismatched: 16_384,
+                num_mismatches: 1,
+                first_mismatches: vec![0..16_384],
+            },
+            verify_device(&device, &seed, 1000, 4, 0)
+        );
+    }
+
+    #[test]
+    fn test_verify_fails_with_wrong_seed() {
+        const DEVICE_SIZE: usize = 100_003;
+        let device = MemoryDevice::new(DeviceKind::Honest, DEVICE_SIZE);
+
+        wipe_deterministically(&device, &Seed::generate().unwrap(), 1000, 4, 0);
+
+        assert_eq!(
+            VerificationResult {
+                num_bytes_verified: DEVICE_SIZE as u64,
+                num_bytes_mismatched: DEVICE_SIZE as u64,
+                num_mismatches: 1,
+                first_mismatches: vec![0..DEVICE_SIZE as u64],
+            },
+            verify_device(&device, &Seed::generate().unwrap(), 1000, 4, 0)
+        );
+    }
+
+    #[test]
+    fn test_verify_finds_changed_byte() {
+        const DEVICE_SIZE: usize = 100_003;
+        let seed = Seed::generate().unwrap();
+        let device = MemoryDevice::new(DeviceKind::Honest, DEVICE_SIZE);
+
+        wipe_deterministically(&device, &seed, 1000, 4, 0);
+        device.storage.lock().unwrap()[50_000] ^= 1;
+
+        assert_eq!(
+            VerificationResult {
+                num_bytes_verified: DEVICE_SIZE as u64,
+                num_bytes_mismatched: 4096,
+                num_mismatches: 1,
+                first_mismatches: vec![49_152..53_248],
+            },
+            verify_device(&device, &seed, 1000, 4, 0)
+        );
+    }
+
+    #[test]
+    fn test_verify_finds_device_that_wraps_around() {
+        // It claims to have 64 KiB but only has 16 KiB
+        let seed = Seed::generate().unwrap();
+        let device = MemoryDevice::new(DeviceKind::WrapsAround { real_size: 16_384 }, 65_536);
+
+        wipe_deterministically(&device, &seed, 1000, 4, 0);
+
+        // Each write of a later part overwrote the earlier ones, so only the last 16 KiB are right
+        assert_eq!(
+            VerificationResult {
+                num_bytes_verified: 65_536,
+                num_bytes_mismatched: 49_152,
+                num_mismatches: 1,
+                first_mismatches: vec![0..49_152],
+            },
+            verify_device(&device, &seed, 1000, 4, 0)
+        );
+    }
+
+    #[test]
+    fn test_verify_finds_device_that_drops_writes() {
+        // It claims to have 64 KiB but only has 16 KiB
+        let seed = Seed::generate().unwrap();
+        let device = MemoryDevice::new(DeviceKind::DropsWrites { real_size: 16_384 }, 65_536);
+
+        wipe_deterministically(&device, &seed, 1000, 4, 0);
+
+        // Only the first 16 KiB got stored
+        assert_eq!(
+            VerificationResult {
+                num_bytes_verified: 65_536,
+                num_bytes_mismatched: 49_152,
+                num_mismatches: 1,
+                first_mismatches: vec![16_384..65_536],
+            },
+            verify_device(&device, &seed, 1000, 4, 0)
         );
     }
 

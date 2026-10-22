@@ -5,6 +5,7 @@
 * Fix build on Apple Silicon
 * Show warnings by default
 * Require Rust 1.83+ for building from source
+* Add --deterministic and --verify to check whether a device really stores the data written to it
 
 2.0.0
 ----------

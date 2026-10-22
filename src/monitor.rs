@@ -4,7 +4,6 @@ use running_average::RealTimeRunningAverage;
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Write};
 
-use crate::block_writer::BlockWriter;
 use crate::producer::ProductReceiver;
 
 const CLEAR_LINE: &str = "\x1b[2K";
@@ -17,48 +16,55 @@ pub struct ProgressInfo {
     pub skip_bytes: u64,
 }
 
-pub struct Monitor<'w, M1, M2>
+pub struct Monitor<M1, M2, F>
 where
     M1: ProductReceiver<Vec<u8>>,
     M2: ProductReceiver<Vec<u8>>,
+    F: Fn() -> u64,
 {
-    /// A deterministic wipe doesn't produce seeds, so it has no seed buffer to show
+    /// Not everything we monitor produces seeds, so there isn't always a seed buffer to show
     seed_monitor: Option<M1>,
     random_monitor: M2,
-    writer: &'w BlockWriter,
+    /// What the display calls the bytes that were processed, e.g. "Written:"
+    processed_label: &'static str,
+    /// Returns the number of bytes that were processed so far, e.g. written to the device
+    num_bytes_processed: F,
     speed_calculator: RealTimeRunningAverage<f64>,
-    written_bytes: u64,
+    processed_bytes: u64,
     progress: Option<ProgressInfo>,
     num_newlines_last_display: Option<usize>,
 }
 
-impl<'w, M1, M2> Monitor<'w, M1, M2>
+impl<M1, M2, F> Monitor<M1, M2, F>
 where
     M1: ProductReceiver<Vec<u8>>,
     M2: ProductReceiver<Vec<u8>>,
+    F: Fn() -> u64,
 {
     pub fn new(
         seed_monitor: Option<M1>,
         random_monitor: M2,
-        writer: &'w BlockWriter,
+        processed_label: &'static str,
+        num_bytes_processed: F,
         progress: Option<ProgressInfo>,
     ) -> Self {
         Self {
             seed_monitor,
             random_monitor,
-            writer,
+            processed_label,
+            num_bytes_processed,
             speed_calculator: RealTimeRunningAverage::default(),
-            written_bytes: 0,
+            processed_bytes: 0,
             progress,
             num_newlines_last_display: None,
         }
     }
 
     pub fn display(&mut self) -> Result<()> {
-        let new_written_bytes = self.writer.num_bytes_written();
+        let new_written_bytes = (self.num_bytes_processed)();
         self.speed_calculator
-            .insert((new_written_bytes - self.written_bytes) as f64);
-        self.written_bytes = new_written_bytes;
+            .insert((new_written_bytes - self.processed_bytes) as f64);
+        self.processed_bytes = new_written_bytes;
 
         let current_speed_mb_s =
             self.speed_calculator.measurement().rate() / ((1024 * 1024) as f64);
@@ -70,6 +76,7 @@ where
 
         let content = format_display_content(
             self.progress.as_ref(),
+            self.processed_label,
             new_written_bytes,
             current_speed_mb_s,
             num_seed_blocks,
@@ -91,6 +98,7 @@ where
 
 fn format_display_content(
     progress: Option<&ProgressInfo>,
+    processed_label: &str,
     new_written_bytes: u64,
     current_speed_mb_s: f64,
     num_seed_blocks: Option<usize>,
@@ -163,7 +171,7 @@ fn format_display_content(
              {buffers}",
             label_progress = format!("{:>14}", "Progress:").bold(),
             bar = bar.cyan().bold(),
-            label_written = format!("{:>14}", "Written:").bold(),
+            label_written = format!("{:>14}", processed_label).bold(),
             written = written_val.cyan().bold(),
             label_speed = format!("{:>14}", "Speed:").bold(),
             speed = format!("{:>10}", speed_val).green(),
@@ -181,7 +189,7 @@ fn format_display_content(
              {CLEAR_LINE}  {label_speed}  {speed}\n\
              {CLEAR_LINE}\n\
              {buffers}",
-            label_written = format!("{:>14}", "Written:").bold(),
+            label_written = format!("{:>14}", processed_label).bold(),
             written = format!("{:>10}", written_val).cyan().bold(),
             label_speed = format!("{:>14}", "Speed:").bold(),
             speed = format!("{:>10}", speed_val).green(),
@@ -206,7 +214,7 @@ mod tests {
 
     #[test]
     fn no_progress_content_newlines_do_not_end_with_newline() {
-        let content = format_display_content(None, 0, 0.0, Some(0), 0);
+        let content = format_display_content(None, "Written:", 0, 0.0, Some(0), 0);
         assert!(
             !content.ends_with('\n'),
             "Content must not end with a trailing newline, \
@@ -220,7 +228,8 @@ mod tests {
             device_size: 1_000_000_000,
             skip_bytes: 0,
         };
-        let content = format_display_content(Some(&progress), 500_000_000, 100.0, Some(5), 10);
+        let content =
+            format_display_content(Some(&progress), "Written:", 500_000_000, 100.0, Some(5), 10);
         assert!(
             !content.ends_with('\n'),
             "Content must not end with a trailing newline, \
@@ -233,8 +242,9 @@ mod tests {
         // The number of newlines must be the same regardless of the data values,
         // since we use the newline count from the previous display to move the
         // cursor up before overwriting.
-        let content_a = format_display_content(None, 0, 0.0, Some(0), 0);
-        let content_b = format_display_content(None, 999_999_999_999, 999.99, Some(100), 200);
+        let content_a = format_display_content(None, "Written:", 0, 0.0, Some(0), 0);
+        let content_b =
+            format_display_content(None, "Written:", 999_999_999_999, 999.99, Some(100), 200);
         let newlines_a = content_a.chars().filter(|&c| c == '\n').count();
         let newlines_b = content_b.chars().filter(|&c| c == '\n').count();
         assert_eq!(
@@ -253,9 +263,15 @@ mod tests {
             device_size: 10_000_000_000_000,
             skip_bytes: 5_000_000_000_000,
         };
-        let content_a = format_display_content(Some(&progress_a), 0, 0.0, Some(0), 0);
-        let content_b =
-            format_display_content(Some(&progress_b), 999_999_999_999, 999.99, Some(100), 200);
+        let content_a = format_display_content(Some(&progress_a), "Written:", 0, 0.0, Some(0), 0);
+        let content_b = format_display_content(
+            Some(&progress_b),
+            "Written:",
+            999_999_999_999,
+            999.99,
+            Some(100),
+            200,
+        );
         let newlines_a = content_a.chars().filter(|&c| c == '\n').count();
         let newlines_b = content_b.chars().filter(|&c| c == '\n').count();
         assert_eq!(
@@ -272,9 +288,9 @@ mod tests {
         };
         for progress in [None, Some(&progress)] {
             let with_seed_buffer =
-                format_display_content(progress, 500_000_000, 100.0, Some(5), 10);
+                format_display_content(progress, "Written:", 500_000_000, 100.0, Some(5), 10);
             let without_seed_buffer =
-                format_display_content(progress, 500_000_000, 100.0, None, 10);
+                format_display_content(progress, "Written:", 500_000_000, 100.0, None, 10);
 
             let seed_buffer_line = with_seed_buffer
                 .lines()
@@ -284,6 +300,25 @@ mod tests {
                 with_seed_buffer.replace(&format!("{seed_buffer_line}\n"), ""),
                 without_seed_buffer
             );
+        }
+    }
+
+    #[test]
+    fn content_calls_the_processed_bytes_by_their_label() {
+        let progress = ProgressInfo {
+            device_size: 1_000_000_000,
+            skip_bytes: 0,
+        };
+        for progress in [None, Some(&progress)] {
+            let written =
+                format_display_content(progress, "Written:", 500_000_000, 100.0, None, 10);
+            let verified =
+                format_display_content(progress, "Verified:", 500_000_000, 100.0, None, 10);
+
+            assert!(written.contains("Written:"));
+            assert!(!written.contains("Verified:"));
+            // Labels are aligned to the right, so only the label and its padding differ
+            assert_eq!(written.replace(" Written:", "Verified:"), verified);
         }
     }
 }

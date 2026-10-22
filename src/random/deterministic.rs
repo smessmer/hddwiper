@@ -62,6 +62,34 @@ mod tests {
     }
 
     #[test]
+    fn data_of_a_seed_never_changes() {
+        // If a seed ever stood for other data, devices that an older version wiped couldn't be
+        // verified anymore. The data is XSalsa20 with the seed as its key and a nonce of
+        // zeroes. The expected values were computed with libsodium. The second one is at
+        // 256 GiB, where XSalsa20's block counter needs more than 32 bit.
+        let seed: Seed = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+            .parse()
+            .unwrap();
+        let mut rng = deterministic_rng(&seed);
+        let mut data = [0; 64];
+
+        rng.blocking_read(&mut data).unwrap();
+        assert_eq!(
+            "a141cb3246c2dd6bfbb8aedfaee2caf0d6c7d5fd72abfca1ee1cbbbd94058ddc\
+             4a0ef04198aabf335c54720f2546bed2e43474f047e6284c6b034b8d3cc9df32",
+            hex::encode(data)
+        );
+
+        rng.seek(256 * 1024 * 1024 * 1024).unwrap();
+        rng.blocking_read(&mut data).unwrap();
+        assert_eq!(
+            "41d14fd961c190526fadfa18bbf6a3ca645faa46d831b9483fee0e47b2915e54\
+             e045745c137bb759c2d0f37edfd58c9f2d0acc1ecc0d1ff944aee27f56991f61",
+            hex::encode(data)
+        );
+    }
+
+    #[test]
     fn seed_is_displayed_as_hex() {
         let mut seed = [0; 32];
         seed[0] = 0x01;
