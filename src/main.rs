@@ -22,7 +22,7 @@ mod random;
 use aligned_buffer::{AlignedBuffer, ALIGNMENT};
 use aligned_reader::AlignedReader;
 use aligned_writer::AlignedWriter;
-use block_verifier::{BlockVerifier, VerificationResult};
+use block_verifier::{BlockVerifier, MismatchesSoFar, VerificationResult};
 use block_writer::BlockWriter;
 use monitor::{Monitor, ProgressInfo};
 use producer::{Producer, ProductReceiver, ThreadPoolProducer, ThreadPoolProductReceiver};
@@ -100,7 +100,8 @@ struct Args {
     /// Don't write anything, but check whether the device contains the data that a wipe with
     /// --deterministic wrote to it. The seed is the one that this wipe showed when it
     /// started. hddwiper reads the device from --skip-bytes to its end, compares it with the
-    /// data that belongs to the seed, and lists the parts that differ. A device that doesn't
+    /// data that belongs to the seed, and lists the parts that differ. While it runs, it shows
+    /// how much it has found to differ so far. A device that doesn't
     /// return the data didn't store it, for example because it is defective or because it
     /// has less capacity than it claims to have.
     /// On Linux, the data is read from the device itself and not from the cache of the
@@ -220,6 +221,8 @@ fn wipe(args: &Args) -> Result<()> {
         None
     };
 
+    // A wipe doesn't compare any data, so there are no mismatches to show
+    let mismatches: Option<fn() -> MismatchesSoFar> = None;
     let mut monitor = Monitor::new(
         seed_producer
             .as_ref()
@@ -227,6 +230,7 @@ fn wipe(args: &Args) -> Result<()> {
         random_monitor,
         "Written:",
         || writer.num_bytes_written(),
+        mismatches,
         progress_info,
     );
 
@@ -428,6 +432,7 @@ fn verify(args: &Args, seed: &Seed) -> Result<ExitCode> {
         random_producer.make_receiver(),
         "Verified:",
         || verifier.num_bytes_verified(),
+        Some(|| verifier.mismatches_so_far()),
         Some(ProgressInfo {
             device_size,
             skip_bytes,
@@ -439,6 +444,8 @@ fn verify(args: &Args, seed: &Seed) -> Result<ExitCode> {
 
         wait_unless_finished(DISPLAY_INTERVAL, || verifier.is_finished());
     }
+    // So that what the display says in the end is what was found in the end
+    monitor.display()?;
 
     let result = verifier.join()?;
     // Otherwise we would call a device fine that didn't return all of its data

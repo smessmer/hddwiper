@@ -187,6 +187,36 @@ fn verify_only_looks_at_the_data_behind_skip_bytes() {
 }
 
 #[test]
+fn verify_shows_how_much_is_mismatched() {
+    let data = data_of_seed(SEED, 0, 20_000);
+    let mut changed_data = data.clone();
+    changed_data[10_000] ^= 1;
+    changed_data[19_000] ^= 1;
+
+    // What the display says in the end. While a verification runs, the display says what was
+    // found until then, so that nobody has to wait for the end to see that the data differs.
+    for (data, seed, mismatched) in [
+        (&data, SEED, "Mismatched:  0 bytes\n"),
+        (
+            &changed_data,
+            SEED,
+            "Mismatched:  7712 bytes in 2 parts, the first at byte 8192\n",
+        ),
+        (
+            &data,
+            OTHER_SEED,
+            "Mismatched:  20000 bytes in 1 part, the first at byte 0\n",
+        ),
+    ] {
+        let file = TempFile::new("verify-mismatched", data);
+
+        let run = hddwiper(&["--verify", seed, file.path()]);
+
+        assert!(run.stdout.contains(mismatched), "{}", run.stdout);
+    }
+}
+
+#[test]
 fn verify_doesnt_depend_on_the_other_options() {
     let mut data = data_of_seed(SEED, 0, 20_000);
     data[10_000] ^= 1;
@@ -433,6 +463,20 @@ mod wipe_of_full_device {
         assert_eq!(0, run.exit_code, "{}", run.stderr);
         assert!(!run.stdout.contains("Seed: "), "{}", run.stdout);
         assert!(!run.stdout.contains("--verify"), "{}", run.stdout);
+    }
+
+    #[test]
+    fn wipe_doesnt_show_mismatches() {
+        // It doesn't compare anything, so it would always say that there are none
+        for options in [vec![], vec!["--deterministic"]] {
+            let mut args = options.clone();
+            args.push("/dev/full");
+
+            let run = hddwiper(&args);
+
+            assert_eq!(0, run.exit_code, "{}", run.stderr);
+            assert!(!run.stdout.contains("Mismatched"), "{}", run.stdout);
+        }
     }
 
     #[test]

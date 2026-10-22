@@ -373,6 +373,13 @@ fn verify_finds_data_that_was_overwritten() {
         "{}",
         run.stdout
     );
+    // And the display says so before the list of the parts that differ
+    assert!(
+        run.stdout
+            .contains("Mismatched:  12288 bytes in 1 part, the first at byte 1048576\n"),
+        "{}",
+        run.stdout
+    );
 }
 
 #[test]

@@ -2,7 +2,7 @@ use anyhow::{ensure, Result};
 use std::ops::{Deref, Range};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
 
@@ -35,11 +35,35 @@ pub struct VerificationResult {
     pub first_mismatches: Vec<Range<u64>>,
 }
 
+/// What a [BlockVerifier] has found in the data that it has compared so far
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MismatchesSoFar {
+    /// The number of bytes in sectors that differ from the expected data
+    pub num_bytes_mismatched: u64,
+
+    /// The number of parts that differ. Sectors that follow each other directly are one part.
+    pub num_mismatches: u64,
+
+    /// The position where the first part that differs begins
+    pub first_mismatch_position: Option<u64>,
+}
+
+impl From<&VerificationResult> for MismatchesSoFar {
+    fn from(result: &VerificationResult) -> Self {
+        Self {
+            num_bytes_mismatched: result.num_bytes_mismatched,
+            num_mismatches: result.num_mismatches,
+            first_mismatch_position: result.first_mismatches.first().map(|range| range.start),
+        }
+    }
+}
+
 /// Launches a thread that compares the data of an [AlignedReader], which reads e.g. a
 /// [std::fs::File], with the blocks from a [ProductReceiver].
 pub struct BlockVerifier {
     join_handle: JoinHandle<Result<VerificationResult>>,
     num_bytes_verified: Arc<AtomicU64>,
+    mismatches_so_far: Arc<Mutex<MismatchesSoFar>>,
 }
 
 impl BlockVerifier {
@@ -52,15 +76,24 @@ impl BlockVerifier {
         start_position: u64,
     ) -> Self {
         let num_bytes_verified = Arc::new(AtomicU64::new(0));
+        let mismatches_so_far = Arc::new(Mutex::new(MismatchesSoFar::default()));
         let join_handle = {
             let num_bytes_verified = Arc::clone(&num_bytes_verified);
+            let mismatches_so_far = Arc::clone(&mismatches_so_far);
             thread::spawn(move || {
-                _verify_blocks(block_source, reader, start_position, &num_bytes_verified)
+                _verify_blocks(
+                    block_source,
+                    reader,
+                    start_position,
+                    &num_bytes_verified,
+                    &mismatches_so_far,
+                )
             })
         };
         Self {
             join_handle,
             num_bytes_verified,
+            mismatches_so_far,
         }
     }
 
@@ -70,6 +103,12 @@ impl BlockVerifier {
 
     pub fn num_bytes_verified(&self) -> u64 {
         self.num_bytes_verified.load(Ordering::Relaxed)
+    }
+
+    /// What was found so far. This doesn't have to wait for the verification to finish, so it
+    /// can tell early that the data differs.
+    pub fn mismatches_so_far(&self) -> MismatchesSoFar {
+        *self.mismatches_so_far.lock().unwrap()
     }
 
     /// Waits until the verification is finished and returns what it found. This fails if the
@@ -84,6 +123,7 @@ fn _verify_blocks<B: Deref<Target = [u8]>>(
     mut reader: AlignedReader,
     start_position: u64,
     num_bytes_verified: &AtomicU64,
+    mismatches_so_far: &Mutex<MismatchesSoFar>,
 ) -> Result<VerificationResult> {
     let mut mismatches = Mismatches::new(start_position);
     // The block that the data is compared with at the moment, and how much of it was compared
@@ -108,12 +148,16 @@ fn _verify_blocks<B: Deref<Target = [u8]>>(
             let len = actual.len().min(expected.len() - num_compared_of_expected);
             mismatches.compare(&expected[num_compared_of_expected..][..len], &actual[..len]);
             num_bytes_verified.fetch_add(len as u64, Ordering::Relaxed);
+            *mismatches_so_far.lock().unwrap() = mismatches.so_far();
             num_compared_of_expected += len;
             actual = &actual[len..];
         }
         log::debug!("Reading data...");
     }
-    Ok(mismatches.into_result())
+    let result = mismatches.into_result();
+    // This also has the sector that the data ended in
+    *mismatches_so_far.lock().unwrap() = MismatchesSoFar::from(&result);
+    Ok(result)
 }
 
 /// Collects the parts that differ, from data that is compared piece by piece
@@ -205,6 +249,18 @@ impl Mismatches {
         }
     }
 
+    /// What was found in the data that was compared so far. A sector that wasn't compared to
+    /// its end yet isn't part of it.
+    fn so_far(&self) -> MismatchesSoFar {
+        let first_range = self.first_ranges.first().or(self.current_range.as_ref());
+        MismatchesSoFar {
+            num_bytes_mismatched: self.num_bytes,
+            // The latest part isn't counted yet, see `current_range`
+            num_mismatches: self.num_ranges + u64::from(self.current_range.is_some()),
+            first_mismatch_position: first_range.map(|range| range.start),
+        }
+    }
+
     fn into_result(mut self) -> VerificationResult {
         // The data can end in the middle of a sector
         self.finish_sector();
@@ -228,7 +284,7 @@ mod tests {
     use anyhow::anyhow;
     use std::collections::VecDeque;
     use std::io::{self, Cursor, Read, Seek, SeekFrom};
-    use std::sync::Mutex;
+    use std::sync::atomic::AtomicUsize;
 
     const BLOCK_SIZE: usize = 10_000;
 
@@ -238,22 +294,37 @@ mod tests {
     /// A block source that hands out the given blocks and then fails
     struct FixedBlocks {
         blocks: Mutex<VecDeque<Vec<u8>>>,
+
+        /// How many blocks it may hand out. A test can keep a clone of this to hold back the
+        /// blocks that follow, and with them the verification.
+        num_blocks_allowed: Arc<AtomicUsize>,
+        num_blocks_handed_out: AtomicUsize,
     }
 
     impl FixedBlocks {
         fn new(data: &[u8], block_size: usize) -> Self {
+            Self::of(
+                data.chunks(block_size)
+                    .map(|block| block.to_vec())
+                    .collect(),
+            )
+        }
+
+        fn of(blocks: VecDeque<Vec<u8>>) -> Self {
             Self {
-                blocks: Mutex::new(
-                    data.chunks(block_size)
-                        .map(|block| block.to_vec())
-                        .collect(),
-                ),
+                blocks: Mutex::new(blocks),
+                num_blocks_allowed: Arc::new(AtomicUsize::new(usize::MAX)),
+                num_blocks_handed_out: AtomicUsize::new(0),
             }
         }
     }
 
     impl ProductReceiver<Vec<u8>> for FixedBlocks {
         fn blocking_get_product(&self) -> Result<Vec<u8>> {
+            let num_blocks_before = self.num_blocks_handed_out.fetch_add(1, Ordering::SeqCst);
+            while num_blocks_before >= self.num_blocks_allowed.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
             let mut blocks = self.blocks.lock().unwrap();
             blocks.pop_front().ok_or_else(|| anyhow!("No blocks left"))
         }
@@ -264,6 +335,18 @@ mod tests {
 
         fn num_products_in_buffer(&self) -> usize {
             self.blocks.lock().unwrap().len()
+        }
+    }
+
+    /// Waits until `condition` holds and fails the test if that takes too long
+    fn wait_until(condition: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !condition() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Timed out waiting for condition"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
 
@@ -558,9 +641,7 @@ mod tests {
 
     #[test]
     fn fails_with_empty_blocks() {
-        let block_source = FixedBlocks {
-            blocks: Mutex::new(VecDeque::from([vec![], vec![]])),
-        };
+        let block_source = FixedBlocks::of(VecDeque::from([vec![], vec![]]));
 
         let result =
             BlockVerifier::new(block_source, reader_of(vec![1, 2, 3], READ_SIZE), 0).join();
@@ -587,6 +668,148 @@ mod tests {
         }
 
         assert_eq!(34_567, verifier.num_bytes_verified());
+    }
+
+    #[test]
+    fn mismatches_so_far_are_known_before_the_end() {
+        let expected = test_data(100_000);
+        let mut actual = expected[..50_000].to_vec();
+        // In the first block and in the last one
+        actual[5000] ^= 1;
+        actual[45_000] ^= 1;
+        let block_source = FixedBlocks::new(&expected, BLOCK_SIZE);
+        // The verification gets no further than the first two blocks
+        let num_blocks_allowed = Arc::clone(&block_source.num_blocks_allowed);
+        num_blocks_allowed.store(2, Ordering::SeqCst);
+
+        let verifier = BlockVerifier::new(block_source, reader_of(actual, READ_SIZE), 0);
+        let found_in_first_blocks = MismatchesSoFar {
+            num_bytes_mismatched: SECTOR_SIZE,
+            num_mismatches: 1,
+            first_mismatch_position: Some(4096),
+        };
+        wait_until(|| verifier.mismatches_so_far() == found_in_first_blocks);
+        // That is all it can know by now, so it stays at that
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert_eq!(found_in_first_blocks, verifier.mismatches_so_far());
+        assert!(!verifier.is_finished());
+
+        num_blocks_allowed.store(usize::MAX, Ordering::SeqCst);
+        wait_until(|| verifier.is_finished());
+        assert_eq!(
+            MismatchesSoFar {
+                num_bytes_mismatched: 2 * SECTOR_SIZE,
+                num_mismatches: 2,
+                first_mismatch_position: Some(4096),
+            },
+            verifier.mismatches_so_far()
+        );
+    }
+
+    #[test]
+    fn mismatches_so_far_are_those_of_the_result_in_the_end() {
+        let expected = test_data(100_000);
+
+        // No mismatches, mismatches in whole sectors, and one in the sector that the data
+        // ends in. That one is only known to differ when the data is at its end.
+        for (len, wrong_positions) in [
+            (9000, vec![]),
+            (30_000, vec![0, 10_000, 20_000]),
+            (9000, vec![8999]),
+        ] {
+            let mut actual = expected[..len].to_vec();
+            for position in &wrong_positions {
+                actual[*position] ^= 1;
+            }
+
+            let verifier = BlockVerifier::new(
+                FixedBlocks::new(&expected, BLOCK_SIZE),
+                reader_of(actual, READ_SIZE),
+                1000,
+            );
+            wait_until(|| verifier.is_finished());
+            let mismatches_so_far = verifier.mismatches_so_far();
+            let result = verifier.join().unwrap();
+
+            assert_eq!(wrong_positions.len() as u64, result.num_mismatches);
+            assert_eq!(
+                MismatchesSoFar {
+                    num_bytes_mismatched: result.num_bytes_mismatched,
+                    num_mismatches: result.num_mismatches,
+                    first_mismatch_position: result
+                        .first_mismatches
+                        .first()
+                        .map(|range| range.start),
+                },
+                mismatches_so_far,
+                "Wrong for mismatches at {wrong_positions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mismatches_so_far_grow_with_the_data_that_is_compared() {
+        const LEN: usize = 2_000_000;
+        let expected = test_data(LEN);
+        let mut actual = expected.clone();
+        // Two sectors in a row, and then every second sector, more of them than a result lists
+        actual[4096] ^= 1;
+        actual[8192] ^= 1;
+        let num_single_sectors = MAX_LISTED_MISMATCHES as u64 + 20;
+        for index in 0..num_single_sectors {
+            actual[(20_480 + index * 2 * SECTOR_SIZE) as usize] ^= 1;
+        }
+        let mut mismatches = Mismatches::new(0);
+        let compare_until = |mismatches: &mut Mismatches, end: usize| {
+            let start = mismatches.position as usize;
+            mismatches.compare(&expected[start..end], &actual[start..end]);
+            mismatches.so_far()
+        };
+
+        assert_eq!(MismatchesSoFar::default(), mismatches.so_far());
+        assert_eq!(
+            MismatchesSoFar::default(),
+            compare_until(&mut mismatches, 4096)
+        );
+        // A sector only counts when it was compared to its end
+        assert_eq!(
+            MismatchesSoFar::default(),
+            compare_until(&mut mismatches, 8191)
+        );
+        assert_eq!(
+            MismatchesSoFar {
+                num_bytes_mismatched: SECTOR_SIZE,
+                num_mismatches: 1,
+                first_mismatch_position: Some(4096),
+            },
+            compare_until(&mut mismatches, 8192)
+        );
+        // The sector that follows it directly makes the part larger, and isn't a second part
+        assert_eq!(
+            MismatchesSoFar {
+                num_bytes_mismatched: 2 * SECTOR_SIZE,
+                num_mismatches: 1,
+                first_mismatch_position: Some(4096),
+            },
+            compare_until(&mut mismatches, 16_384)
+        );
+        assert_eq!(
+            MismatchesSoFar {
+                num_bytes_mismatched: 3 * SECTOR_SIZE,
+                num_mismatches: 2,
+                first_mismatch_position: Some(4096),
+            },
+            compare_until(&mut mismatches, 24_576)
+        );
+        // Parts are still counted when there are more of them than a result lists
+        assert_eq!(
+            MismatchesSoFar {
+                num_bytes_mismatched: (2 + num_single_sectors) * SECTOR_SIZE,
+                num_mismatches: 1 + num_single_sectors,
+                first_mismatch_position: Some(4096),
+            },
+            compare_until(&mut mismatches, LEN)
+        );
     }
 
     /// What a verification has to find, computed in the simplest way: with all the data at
