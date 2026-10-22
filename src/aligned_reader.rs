@@ -182,6 +182,7 @@ fn read_until_full_or_end(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -190,8 +191,7 @@ mod tests {
 
     /// Behaves like a file that was opened for direct reads, so it only accepts aligned reads
     struct DirectFile {
-        content: Vec<u8>,
-        position: usize,
+        content: Cursor<Vec<u8>>,
 
         /// No read returns more bytes than this, no matter how many it was asked for
         max_read_size: usize,
@@ -201,6 +201,12 @@ mod tests {
 
         /// The reads with these numbers get interrupted before they read anything
         interrupted_reads: Vec<usize>,
+
+        /// Whether a read crashes the thread that it is called in
+        crashes_on_read: bool,
+
+        /// Whether it can't seek, like a pipe
+        cant_seek: bool,
 
         /// How many reads there were. A test can keep a clone of this to see it from outside.
         num_reads: Arc<AtomicUsize>,
@@ -216,11 +222,12 @@ mod tests {
     impl DirectFile {
         fn new(content: Vec<u8>) -> Self {
             Self {
-                content,
-                position: 0,
+                content: Cursor::new(content),
                 max_read_size: usize::MAX,
                 failing_reads: vec![],
                 interrupted_reads: vec![],
+                crashes_on_read: false,
+                cant_seek: false,
                 num_reads: Arc::new(AtomicUsize::new(0)),
                 is_held_back: Arc::new(AtomicBool::new(false)),
                 is_dropped: Arc::new(AtomicBool::new(false)),
@@ -234,6 +241,7 @@ mod tests {
             while self.is_held_back.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(1));
             }
+            assert!(!self.crashes_on_read, "Simulated crash");
             if self.failing_reads.contains(&read_number) {
                 return Err(io::Error::other("Simulated failure"));
             }
@@ -243,7 +251,7 @@ mod tests {
 
             assert_eq!(
                 0,
-                self.position % ALIGNMENT,
+                self.content.position() % ALIGNMENT as u64,
                 "The read doesn't begin at an aligned position"
             );
             assert_eq!(
@@ -257,23 +265,17 @@ mod tests {
                 "The read doesn't read into aligned memory"
             );
 
-            let remaining = &self.content[self.position.min(self.content.len())..];
-            let num_bytes = dest.len().min(remaining.len()).min(self.max_read_size);
-            dest[..num_bytes].copy_from_slice(&remaining[..num_bytes]);
-            self.position += num_bytes;
-            Ok(num_bytes)
+            let num_bytes = dest.len().min(self.max_read_size);
+            self.content.read(&mut dest[..num_bytes])
         }
     }
 
     impl Seek for DirectFile {
         fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
-            match position {
-                SeekFrom::Start(position) => {
-                    self.position = position as usize;
-                    Ok(position)
-                }
-                _ => Err(ErrorKind::Unsupported.into()),
+            if self.cant_seek {
+                return Err(ErrorKind::NotSeekable.into());
             }
+            self.content.seek(position)
         }
     }
 
@@ -482,22 +484,10 @@ mod tests {
 
     #[test]
     fn fails_if_the_position_cant_be_seeked_to() {
-        /// A file that can't seek, like a pipe
-        struct NoSeek;
+        let mut file = DirectFile::new(content(3 * BUFFER_SIZE));
+        file.cant_seek = true;
 
-        impl Read for NoSeek {
-            fn read(&mut self, _dest: &mut [u8]) -> io::Result<usize> {
-                Ok(0)
-            }
-        }
-
-        impl Seek for NoSeek {
-            fn seek(&mut self, _position: SeekFrom) -> io::Result<u64> {
-                Err(ErrorKind::NotSeekable.into())
-            }
-        }
-
-        let result = AlignedReader::new(NoSeek, 0, BUFFER_SIZE, 3);
+        let result = AlignedReader::new(file, 0, BUFFER_SIZE, 3);
 
         assert_eq!(
             ErrorKind::NotSeekable,
@@ -507,26 +497,9 @@ mod tests {
 
     #[test]
     fn fails_if_its_thread_crashes() {
-        /// A file whose reads panic
-        struct Crashing;
-
-        impl Read for Crashing {
-            fn read(&mut self, _dest: &mut [u8]) -> io::Result<usize> {
-                panic!("Simulated crash");
-            }
-        }
-
-        impl Seek for Crashing {
-            fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
-                Ok(if let SeekFrom::Start(position) = position {
-                    position
-                } else {
-                    0
-                })
-            }
-        }
-
-        let mut reader = AlignedReader::new(Crashing, 0, BUFFER_SIZE, 3).unwrap();
+        let mut file = DirectFile::new(content(3 * BUFFER_SIZE));
+        file.crashes_on_read = true;
+        let mut reader = AlignedReader::new(file, 0, BUFFER_SIZE, 3).unwrap();
 
         // Otherwise the one who waits for the data would wait forever, or take this for the end
         let err = reader.next_data().unwrap_err();

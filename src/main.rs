@@ -1070,24 +1070,18 @@ mod tests {
 
     #[test]
     fn test_open_for_verification() {
-        let content: Vec<u8> = (0..300_000).map(|i| (i % 251) as u8).collect();
-        let path = std::env::temp_dir().join(format!("hddwiper-test-open-{}", std::process::id()));
-        std::fs::write(&path, &content).unwrap();
+        let temp_file = TempFile::new("open-for-verification");
+        let content = test_data(300_000);
+        std::fs::write(temp_file.path(), &content).unwrap();
 
         // Where the file is opened for direct reads, this only works if the reads are aligned
-        let file = open_for_verification(path.to_str().unwrap()).unwrap();
+        let file = open_for_verification(temp_file.path()).unwrap();
         let mut reader = AlignedReader::new(file, 4321, 16 * aligned_buffer::ALIGNMENT, 2).unwrap();
         let mut read_content = vec![];
-        let result = loop {
-            match reader.next_data() {
-                Ok(Some(data)) => read_content.extend_from_slice(data),
-                Ok(None) => break Ok(()),
-                Err(err) => break Err(err),
-            }
-        };
+        while let Some(data) = reader.next_data().unwrap() {
+            read_content.extend_from_slice(data);
+        }
 
-        std::fs::remove_file(&path).unwrap();
-        result.unwrap();
         assert!(content[4321..] == read_content);
     }
 
