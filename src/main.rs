@@ -3,12 +3,14 @@
 use anyhow::{ensure, Context, Result};
 use clap::Parser;
 use std::fmt::Write as FmtWrite;
-use std::fs::File;
-use std::io::{self, ErrorKind, Seek, SeekFrom};
+use std::fs::{File, OpenOptions};
+use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::process::ExitCode;
 use std::time::Duration;
 
+mod aligned_buffer;
 mod aligned_reader;
+mod aligned_writer;
 mod block_verifier;
 mod block_writer;
 mod byte_stream;
@@ -17,18 +19,19 @@ mod producer;
 mod random;
 
 use aligned_reader::AlignedReader;
+use aligned_writer::AlignedWriter;
 use block_verifier::{BlockVerifier, VerificationResult};
 use block_writer::BlockWriter;
 use monitor::{Monitor, ProgressInfo};
-use producer::{Producer, ThreadPoolProducer, ThreadPoolProductReceiver};
+use producer::{Producer, ProductReceiver, ThreadPoolProducer, ThreadPoolProductReceiver};
 use random::Seed;
 
 const SEED_GENERATOR_BLOCK_SIZE: usize = 256;
 const NUM_SEED_BUFFER_BLOCKS: usize = 256;
 const NUM_SEED_WORKERS: usize = 1;
 
-/// A verification reads this many bytes from the device at a time
-const VERIFICATION_READ_SIZE: usize = 4 * 1024 * 1024;
+/// A wipe writes this many bytes to the device at a time, and a verification reads this many
+const DIRECT_IO_SIZE: usize = 4 * 1024 * 1024;
 
 /// Output a random stream of bytes to a hard drive or partition to wipe it.
 /// This will continue wiping until the device runs out of space.
@@ -169,19 +172,27 @@ fn wipe(args: &Args) -> Result<()> {
     };
     let random_monitor = random_producer.make_receiver();
 
-    let mut file = File::create(&args.output_file)?;
+    // A wipe that begins within a sector has to read the beginning of that sector
+    let mut file = open_for_wipe(
+        &args.output_file,
+        AlignedWriter::<File>::has_to_read(skip_bytes),
+    )?;
 
     // Detect total device size by seeking to end. This works for block devices
     // and partitions but returns 0 for newly-created regular files.
     let device_size = file.seek(SeekFrom::End(0))?;
 
-    file.seek(SeekFrom::Start(skip_bytes))?;
     // The writer takes the file, but we need it once more when the writer is done
-    let file_to_sync = file.try_clone()?;
-    let writer = BlockWriter::new(random_producer.make_receiver(), file);
+    let file_after_wipe = file.try_clone()?;
+    let writer = start_writing(
+        random_producer.make_receiver(),
+        file,
+        skip_bytes,
+        DIRECT_IO_SIZE,
+    )?;
 
     // Only show progress when we know the device size (block devices).
-    // For regular files, device_size is 0 after File::create truncates them.
+    // For regular files, device_size is 0 because opening them for a wipe truncates them.
     let progress_info = if device_size > skip_bytes {
         Some(ProgressInfo {
             device_size,
@@ -210,10 +221,66 @@ fn wipe(args: &Args) -> Result<()> {
     writer.join();
 
     println!("\nWaiting until all data is on the device...");
-    sync(&file_to_sync).context("Not all data could be written to the device")?;
+    sync(&file_after_wipe).context("Not all data could be written to the device")?;
+
+    let end_position = (&file_after_wipe).stream_position()?;
+    ensure_wipe_reached_end(&args.output_file, end_position, device_size)?;
 
     println!("Finished.");
 
+    Ok(())
+}
+
+/// Opens the file to wipe. If possible, it is opened for direct writes, which go to the device
+/// itself and not into the cache of the system. The cache is of no use for data that nobody
+/// reads again, it only costs time. And with it, we would only see how much data the system
+/// accepted and not how much the device did, and wouldn't get the error of a write that failed.
+/// Direct writes have to be aligned, see [AlignedWriter].
+fn open_for_wipe(path: &str, with_read_access: bool) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .read(with_read_access);
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        match options.clone().custom_flags(libc::O_DIRECT).open(path) {
+            // This is how the system says that `path` can't be written directly
+            Err(err) if err.kind() == ErrorKind::InvalidInput => {
+                log::debug!("Writing {path} through the cache of the system: {err}");
+            }
+            result => return result,
+        }
+    }
+
+    options.open(path)
+}
+
+/// Starts to write the blocks from `block_source` to `device`, from `position` on. The device
+/// gets aligned writes of `write_size` bytes, see [AlignedWriter].
+fn start_writing(
+    block_source: impl 'static + ProductReceiver<Vec<u8>> + Send,
+    device: impl 'static + Read + Write + Seek + Send,
+    position: u64,
+    write_size: usize,
+) -> io::Result<BlockWriter> {
+    let writer = AlignedWriter::new(device, position, write_size)?;
+    Ok(BlockWriter::new(block_source, writer))
+}
+
+/// A wipe ends when the device says that it is full. `end_position` is where that happened.
+/// A device can also say so before its end, because it has less space than it claims to have.
+/// Then the wipe isn't complete, and this fails.
+fn ensure_wipe_reached_end(path: &str, end_position: u64, device_size: u64) -> Result<()> {
+    ensure!(
+        end_position >= device_size,
+        "The wipe of {path} ended after {end_position} bytes, although its size is \
+         {device_size} bytes"
+    );
     Ok(())
 }
 
@@ -261,7 +328,7 @@ fn verify(args: &Args, seed: &Seed) -> Result<ExitCode> {
          which is {device_size} bytes",
         args.output_file
     );
-    let reader = AlignedReader::new(file, skip_bytes, VERIFICATION_READ_SIZE)?;
+    let reader = AlignedReader::new(file, skip_bytes, DIRECT_IO_SIZE)?;
 
     let random_producer = deterministic_block_producer(
         seed,
@@ -317,7 +384,7 @@ fn open_for_verification(path: &str) -> io::Result<File> {
     {
         use std::os::unix::fs::OpenOptionsExt;
 
-        let direct_file = std::fs::OpenOptions::new()
+        let direct_file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECT)
             .open(path);
@@ -466,7 +533,7 @@ mod tests {
 
     use super::*;
     use crate::byte_stream::{SeekableByteStream, SyncByteStream};
-    use std::io::{Cursor, Read, Write};
+    use std::io::Cursor;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -720,6 +787,109 @@ mod tests {
         }
     }
 
+    /// A file for a test. It is removed when this is dropped.
+    struct TempFile(std::path::PathBuf);
+
+    impl TempFile {
+        fn new(name: &str) -> Self {
+            let file_name = format!("hddwiper-test-{name}-{}", std::process::id());
+            Self(std::env::temp_dir().join(file_name))
+        }
+
+        fn path(&self) -> &str {
+            self.0.to_str().unwrap()
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn test_data(num_bytes: usize) -> Vec<u8> {
+        (0..num_bytes).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[test]
+    fn test_open_for_wipe() {
+        const WRITE_SIZE: usize = 16 * aligned_buffer::ALIGNMENT;
+        let temp_file = TempFile::new("open-for-wipe");
+        // It has content already, which a wipe replaces
+        std::fs::write(temp_file.path(), test_data(1_000_000)).unwrap();
+        // Whole sectors, because where the file is opened for direct writes, nothing else can
+        // be flushed
+        let data = test_data(50 * aligned_buffer::ALIGNMENT);
+
+        // Where the file is opened for direct writes, this only works if the writes are aligned
+        let file = open_for_wipe(temp_file.path(), false).unwrap();
+        let mut writer = AlignedWriter::new(file, 0, WRITE_SIZE).unwrap();
+        writer.write_all(&data).unwrap();
+        writer.flush().unwrap();
+
+        assert!(data == std::fs::read(temp_file.path()).unwrap());
+    }
+
+    #[test]
+    fn test_open_for_wipe_that_begins_within_a_sector() {
+        const WRITE_SIZE: usize = 16 * aligned_buffer::ALIGNMENT;
+        const POSITION: usize = 5000;
+        let temp_file = TempFile::new("open-for-wipe-within-sector");
+        // So that position and data together are whole sectors
+        let data = test_data(50 * aligned_buffer::ALIGNMENT - POSITION);
+
+        // For this, the writer has to read the file
+        assert!(AlignedWriter::<File>::has_to_read(POSITION as u64));
+        let file = open_for_wipe(temp_file.path(), true).unwrap();
+        let mut writer = AlignedWriter::new(file, POSITION as u64, WRITE_SIZE).unwrap();
+        writer.write_all(&data).unwrap();
+        writer.flush().unwrap();
+
+        // The file is new, so in front of the position there is nothing but zeroes
+        let content = std::fs::read(temp_file.path()).unwrap();
+        assert!(content[..POSITION].iter().all(|byte| *byte == 0));
+        assert!(data == content[POSITION..]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_open_for_wipe_without_direct_writes() {
+        // On Linux, /dev/null can't be opened for direct writes. It has to be opened anyway.
+        let mut file = open_for_wipe("/dev/null", false).unwrap();
+        file.write_all(b"some data").unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_wipe_of_full_device() {
+        // /dev/full never has space for anything, so this is a wipe that ends at once
+        let file = open_for_wipe("/dev/full", false).unwrap();
+        let producer = deterministic_block_producer(&Seed::generate().unwrap(), 1000, 3, 2, 0);
+        let writer =
+            start_writing(producer.unwrap().make_receiver(), file, 0, DIRECT_IO_SIZE).unwrap();
+
+        // The writer ends without failing, and that is all we can see of it
+        writer.join();
+    }
+
+    #[test]
+    fn test_ensure_wipe_reached_end() {
+        // A new file has no size that a wipe could miss
+        assert!(ensure_wipe_reached_end("file", 0, 0).is_ok());
+        assert!(ensure_wipe_reached_end("file", 123_456, 0).is_ok());
+        // A device is full at its end
+        assert!(ensure_wipe_reached_end("/dev/sdb", 1_000_000, 1_000_000).is_ok());
+
+        // But not before
+        assert_eq!(
+            "The wipe of /dev/sdb ended after 16384 bytes, although its size is 65536 bytes",
+            ensure_wipe_reached_end("/dev/sdb", 16_384, 65_536)
+                .unwrap_err()
+                .to_string()
+        );
+        assert!(ensure_wipe_reached_end("/dev/sdb", 999_999, 1_000_000).is_err());
+    }
+
     #[test]
     fn test_open_for_verification() {
         let content: Vec<u8> = (0..300_000).map(|i| (i % 251) as u8).collect();
@@ -728,7 +898,7 @@ mod tests {
 
         // Where the file is opened for direct reads, this only works if the reads are aligned
         let file = open_for_verification(path.to_str().unwrap()).unwrap();
-        let mut reader = AlignedReader::new(file, 4321, 16 * aligned_reader::ALIGNMENT).unwrap();
+        let mut reader = AlignedReader::new(file, 4321, 16 * aligned_buffer::ALIGNMENT).unwrap();
         let mut read_content = vec![];
         let result = reader.read_to_end(&mut read_content);
 
@@ -849,10 +1019,11 @@ mod tests {
             }
         }
 
-        fn writer_at(&self, position: usize) -> MemoryDeviceWriter {
-            MemoryDeviceWriter {
+        /// The device as something that can be read and written like a file
+        fn file(&self) -> MemoryDeviceFile {
+            MemoryDeviceFile {
                 device: self.clone(),
-                position,
+                position: 0,
             }
         }
 
@@ -868,14 +1039,37 @@ mod tests {
         }
     }
 
-    struct MemoryDeviceWriter {
+    struct MemoryDeviceFile {
         device: MemoryDevice,
         position: usize,
     }
 
-    impl Write for MemoryDeviceWriter {
+    impl Read for MemoryDeviceFile {
+        fn read(&mut self, dest: &mut [u8]) -> io::Result<usize> {
+            let content = self.device.content();
+            let remaining = &content[self.position.min(content.len())..];
+            let len = dest.len().min(remaining.len());
+            dest[..len].copy_from_slice(&remaining[..len]);
+            self.position += len;
+            Ok(len)
+        }
+    }
+
+    impl Seek for MemoryDeviceFile {
+        fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+            match position {
+                SeekFrom::Start(position) => {
+                    self.position = position as usize;
+                    Ok(position)
+                }
+                _ => Err(ErrorKind::Unsupported.into()),
+            }
+        }
+    }
+
+    impl Write for MemoryDeviceFile {
         fn write(&mut self, data: &[u8]) -> io::Result<usize> {
-            if self.position == self.device.claimed_size {
+            if self.position >= self.device.claimed_size {
                 return Err(io::Error::new(ErrorKind::StorageFull, "Device is full"));
             }
             let len = data.len().min(self.device.claimed_size - self.position);
@@ -903,12 +1097,18 @@ mod tests {
         num_workers: usize,
         skip_bytes: u64,
     ) {
+        // The devices are small, so that only small writes make it many writes
+        const WRITE_SIZE: usize = 2 * aligned_buffer::ALIGNMENT;
+
         let producer =
             deterministic_block_producer(seed, block_size, 3, num_workers, skip_bytes).unwrap();
-        let writer = BlockWriter::new(
+        let writer = start_writing(
             producer.make_receiver(),
-            device.writer_at(skip_bytes as usize),
-        );
+            device.file(),
+            skip_bytes,
+            WRITE_SIZE,
+        )
+        .unwrap();
         while !writer.is_finished() {
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -964,6 +1164,31 @@ mod tests {
                 data_of_seed(&seed, skip_bytes as usize, DEVICE_SIZE) == device.content(),
                 "Wrong data with block size {block_size}, {num_workers} workers and {skip_bytes} \
                  skipped bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn test_wipe_keeps_data_before_skip_bytes() {
+        const DEVICE_SIZE: usize = 100_003;
+        let first_seed = Seed::generate().unwrap();
+        let second_seed = Seed::generate().unwrap();
+
+        // At the beginning of a sector, and within one. The beginning of that one is written
+        // again, and has to stay as it is.
+        for skip_bytes in [8192, 12_345, 99_999] {
+            let device = MemoryDevice::new(DeviceKind::Honest, DEVICE_SIZE);
+            wipe_deterministically(&device, &first_seed, 1000, 4, 0);
+
+            wipe_deterministically(&device, &second_seed, 1000, 4, skip_bytes as u64);
+
+            let mut expected = data_of_seed(&first_seed, 0, DEVICE_SIZE);
+            expected[skip_bytes..].copy_from_slice(
+                &data_of_seed(&second_seed, skip_bytes, DEVICE_SIZE)[skip_bytes..],
+            );
+            assert!(
+                expected == device.content(),
+                "Wrong data after a wipe that skipped {skip_bytes} bytes"
             );
         }
     }
