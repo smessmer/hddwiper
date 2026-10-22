@@ -10,6 +10,13 @@ impl SyncByteStream for Box<dyn SyncByteStream + Send> {
     }
 }
 
+/// A [SyncByteStream] that can continue at any position of the stream. That is only possible
+/// for streams whose content is fixed up front, e.g. because all of it is derived from a seed.
+pub trait SeekableByteStream: SyncByteStream {
+    /// Lets the next read start at the byte with index `position`, counted from the start of the stream
+    fn seek(&mut self, position: u64) -> Result<()>;
+}
+
 #[cfg(test)]
 pub mod testutils {
     use super::*;
@@ -37,6 +44,12 @@ pub mod testutils {
             self.rng.blocking_read(dest)
         }
     }
+
+    impl SeekableByteStream for FakeByteStream {
+        fn seek(&mut self, position: u64) -> Result<()> {
+            self.rng.seek(position)
+        }
+    }
 }
 
 mod block_source;
@@ -44,7 +57,9 @@ mod block_source_byte_stream;
 mod producer_byte_stream;
 pub use producer_byte_stream::byte_stream_from_producer;
 mod byte_stream_producer;
-pub use byte_stream_producer::new_byte_stream_thread_pool_producer;
+pub use byte_stream_producer::{
+    new_byte_stream_thread_pool_producer, new_seekable_byte_stream_thread_pool_producer,
+};
 mod prefetched_byte_stream;
 mod xor_byte_stream;
 pub use xor_byte_stream::XorByteStream;

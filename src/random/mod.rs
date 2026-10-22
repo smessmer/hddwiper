@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 mod composite;
+mod deterministic;
 mod os;
 mod rdrand;
 mod reseeding;
@@ -9,6 +10,7 @@ mod xsalsa20;
 use crate::byte_stream::{SyncByteStream, XorByteStream};
 use reseeding::ReseedingRandomGenerator;
 
+pub use deterministic::{deterministic_rng, Seed};
 pub use xsalsa20::XSalsa20Rng;
 
 pub fn secure_seed_rng() -> Result<impl SyncByteStream + Clone> {
