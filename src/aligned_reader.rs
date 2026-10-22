@@ -205,6 +205,10 @@ mod tests {
         /// How many reads there were. A test can keep a clone of this to see it from outside.
         num_reads: Arc<AtomicUsize>,
 
+        /// While this is set, a read doesn't return. A test can keep a clone of this to hold
+        /// a read back.
+        is_held_back: Arc<AtomicBool>,
+
         /// Set when this is dropped
         is_dropped: Arc<AtomicBool>,
     }
@@ -218,6 +222,7 @@ mod tests {
                 failing_reads: vec![],
                 interrupted_reads: vec![],
                 num_reads: Arc::new(AtomicUsize::new(0)),
+                is_held_back: Arc::new(AtomicBool::new(false)),
                 is_dropped: Arc::new(AtomicBool::new(false)),
             }
         }
@@ -226,6 +231,9 @@ mod tests {
     impl Read for DirectFile {
         fn read(&mut self, dest: &mut [u8]) -> io::Result<usize> {
             let read_number = self.num_reads.fetch_add(1, Ordering::SeqCst);
+            while self.is_held_back.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
             if self.failing_reads.contains(&read_number) {
                 return Err(io::Error::other("Simulated failure"));
             }
@@ -566,6 +574,25 @@ mod tests {
         // Its thread ends, which is when the file is dropped, and it didn't read on before
         wait_until(|| file_is_dropped.load(Ordering::SeqCst));
         assert_eq!(3, num_reads.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn stops_reading_when_it_is_dropped_while_it_reads() {
+        let file = DirectFile::new(content(10 * BUFFER_SIZE));
+        let num_reads = Arc::clone(&file.num_reads);
+        let file_is_dropped = Arc::clone(&file.is_dropped);
+        // The first read doesn't return for now
+        let is_held_back = Arc::clone(&file.is_held_back);
+        is_held_back.store(true, Ordering::SeqCst);
+        let reader = AlignedReader::new(file, 0, BUFFER_SIZE, 3).unwrap();
+        wait_until(|| num_reads.load(Ordering::SeqCst) == 1);
+
+        drop(reader);
+        is_held_back.store(false, Ordering::SeqCst);
+
+        // Nobody takes what it has read anymore, so its thread ends instead of reading on
+        wait_until(|| file_is_dropped.load(Ordering::SeqCst));
+        assert_eq!(1, num_reads.load(Ordering::SeqCst));
     }
 
     #[test]
