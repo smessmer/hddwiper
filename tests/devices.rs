@@ -213,12 +213,14 @@ fn wipe_deterministically(path: &str, block_size: &str, options: &[&str]) -> Str
 fn wipe_writes_the_data_of_its_seed_to_the_whole_device() {
     let dir = TestDir::new("wipe-device");
     // Devices that end at the end of a write of the wipe, and within one. And the two sizes
-    // that sectors commonly have.
+    // that sectors commonly have. The larger ones take several reads of the verification.
     for (sector_size, size) in [
         (512, 8 * MIB),
         (512, 8 * MIB + 512),
         (512, 3 * MIB + 1536),
         (512, 24 * MIB + 512),
+        (512, 32 * MIB),
+        (512, 40 * MIB + 512),
         (4096, 8 * MIB),
         (4096, 8 * MIB + 8192),
         (4096, 24 * MIB + 4096),
@@ -368,6 +370,38 @@ fn verify_finds_data_that_was_overwritten() {
     );
     assert!(
         run.stdout.contains("  1048576 - 1060863\n"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+#[ignore = "needs root"]
+fn verify_finds_data_that_was_overwritten_where_two_reads_meet() {
+    // A verification reads 16 MiB at a time, so this takes three reads
+    const SIZE: usize = 40 * MIB;
+    let dir = TestDir::new("verify-overwritten-between-reads");
+    let device = LoopDevice::new(dir.path("device"), SIZE, 512);
+    let seed = wipe_deterministically(&device.path, "10M", &[]);
+    // The end of the first read and the beginning of the second one
+    device.write(16 * MIB - 100, &[0; 200]);
+    // And the last byte of the last read
+    let last_byte = device.content()[SIZE - 1];
+    device.write(SIZE - 1, &[!last_byte]);
+
+    let run = hddwiper(&["--verify", &seed, &device.path]);
+
+    // The two sectors that the 200 bytes are in are one part, although two reads found it
+    assert_eq!(1, run.exit_code, "{}", run.stderr);
+    assert!(
+        run.stdout
+            .contains(&format!("Verification FAILED: 12288 of {SIZE} bytes")),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout
+            .contains("  16773120 - 16781311\n  41938944 - 41943039\n"),
         "{}",
         run.stdout
     );
