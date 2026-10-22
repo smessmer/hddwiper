@@ -10,6 +10,7 @@
 * On Linux, --verify reads the data from the device itself and not from the cache of the system
 * On Linux, write to the device itself and not into the cache of the system, which is faster, shows the real progress and reports a failed write at once
 * Fail if a device takes no more data before its end is reached
+* On macOS, still wait until the system wrote all data if the drive can't be told to write out its cache
 
 2.0.0
 ----------
