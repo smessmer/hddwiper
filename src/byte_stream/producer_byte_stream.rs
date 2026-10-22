@@ -39,7 +39,7 @@ mod tests {
         let block_size = 100;
         let producer: ThreadPoolProducer<Vec<u8>> = ThreadPoolProducer::new(1, 10, || {
             let mut counter: u8 = 0;
-            Ok(move || {
+            Ok(move |_| {
                 let block: Vec<u8> = (0..block_size)
                     .map(|_| {
                         let val = counter;
@@ -66,7 +66,7 @@ mod tests {
     fn byte_stream_from_producer_multiple_reads() {
         let block_size = 10;
         let producer: ThreadPoolProducer<Vec<u8>> =
-            ThreadPoolProducer::new(1, 10, || Ok(move || Ok(vec![0xAB; block_size]))).unwrap();
+            ThreadPoolProducer::new(1, 10, || Ok(move |_| Ok(vec![0xAB; block_size]))).unwrap();
 
         let receiver = producer.make_receiver();
         let mut stream = byte_stream_from_producer(receiver);
