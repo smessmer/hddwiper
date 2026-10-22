@@ -66,6 +66,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
       - run: cargo test --all-features
+  test_x64_nightly_release_devices:
+    name: Test (x64, nightly, release, devices)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      # These tests wipe loop devices and mount file systems, which needs root. So they are
+      # ignored by default, and cargo runs them with sudo here.
+      - run: cargo test --release --test devices -- --ignored
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
   clippy_check:
     name: Linter (clippy)
     runs-on: ubuntu-latest
