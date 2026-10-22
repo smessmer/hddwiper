@@ -26,8 +26,9 @@ pub fn hddwiper(args: &[&str]) -> Run {
 pub fn hddwiper_with_exactly(args: &[&str]) -> Run {
     let output = Command::new(env!("CARGO_BIN_EXE_hddwiper"))
         .args(args)
-        // So that it logs what it logs by default
+        // So that it logs what it logs by default, and doesn't color what it prints
         .env_remove("RUST_LOG")
+        .env_remove("CLICOLOR_FORCE")
         .output()
         .unwrap();
     Run {
