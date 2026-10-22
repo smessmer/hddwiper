@@ -582,4 +582,91 @@ mod tests {
 
         assert_eq!(34_567, verifier.num_bytes_verified());
     }
+
+    /// What a verification has to find, computed in the simplest way: with all the data at
+    /// hand, sector by sector
+    fn expected_result(expected: &[u8], actual: &[u8], start_position: u64) -> VerificationResult {
+        let end_position = start_position + actual.len() as u64;
+        let mut mismatches: Vec<Range<u64>> = vec![];
+        let mut sector_start = start_position;
+        while sector_start < end_position {
+            let sector_end = ((sector_start / SECTOR_SIZE + 1) * SECTOR_SIZE).min(end_position);
+            let sector_in_data =
+                (sector_start - start_position) as usize..(sector_end - start_position) as usize;
+            if expected[sector_in_data.clone()] != actual[sector_in_data] {
+                match mismatches.last_mut() {
+                    Some(mismatch) if mismatch.end == sector_start => mismatch.end = sector_end,
+                    _ => mismatches.push(sector_start..sector_end),
+                }
+            }
+            sector_start = sector_end;
+        }
+        VerificationResult {
+            num_bytes_verified: actual.len() as u64,
+            num_bytes_mismatched: mismatches.iter().map(|range| range.end - range.start).sum(),
+            num_mismatches: mismatches.len() as u64,
+            first_mismatches: mismatches.into_iter().take(MAX_LISTED_MISMATCHES).collect(),
+        }
+    }
+
+    #[test]
+    fn finds_the_mismatches_of_random_data() {
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+
+        let mut num_cases_with_unlisted_mismatches = 0;
+        // Each case has its own seed, so that one that fails can be run alone
+        for case in 0..150 {
+            let mut rng = StdRng::seed_from_u64(case);
+
+            // Most cases are small. Every fifth one is large and has many changes, so that it
+            // has more mismatches than are listed.
+            let is_large = case % 5 == 0;
+            let len = if is_large {
+                rng.gen_range(1_500_000..=3_000_000)
+            } else {
+                rng.gen_range(0..=50_000)
+            };
+            let block_size = rng.gen_range(1..=100_000);
+            let start_position = match rng.gen_range(0..3) {
+                0 => 0,
+                1 => rng.gen_range(0..3 * SECTOR_SIZE),
+                _ => rng.gen_range(0..1 << 45),
+            };
+
+            let expected = test_data(len + 2 * block_size);
+            let mut actual = expected[..len].to_vec();
+            // Changes of all sizes, some of them next to each other or overlapping
+            let num_changes = match len {
+                0 => 0,
+                _ if is_large => rng.gen_range(200..600),
+                _ => rng.gen_range(0..50),
+            };
+            for _ in 0..num_changes {
+                let change_start = rng.gen_range(0..len);
+                let change_len = match rng.gen_range(0..10) {
+                    0 => rng.gen_range(1..=3 * SECTOR_SIZE as usize),
+                    _ => 1,
+                };
+                for byte in &mut actual[change_start..len.min(change_start + change_len)] {
+                    *byte ^= 0xff;
+                }
+            }
+
+            let expected_result = expected_result(&expected, &actual, start_position);
+            if expected_result.num_mismatches > MAX_LISTED_MISMATCHES as u64 {
+                num_cases_with_unlisted_mismatches += 1;
+            }
+            assert_eq!(
+                expected_result,
+                verify_with_block_size(&expected, actual, start_position, block_size),
+                "Case {case}: {len} bytes at position {start_position}, compared in blocks of \
+                 {block_size} bytes"
+            );
+        }
+        // Otherwise this wouldn't test what it is meant to
+        assert!(
+            num_cases_with_unlisted_mismatches >= 10,
+            "Only {num_cases_with_unlisted_mismatches} cases had mismatches that aren't listed"
+        );
+    }
 }

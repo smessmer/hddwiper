@@ -205,6 +205,31 @@ mod tests {
         assert!(block_writer.is_finished());
     }
 
+    /// A writer that can't write anything, like a device that is broken
+    struct BrokenWriter;
+
+    impl Write for BrokenWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("Simulated failure"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn panics_when_writing_fails() {
+        let source = MockBlockSource::new(vec![vec![1, 2, 3]]);
+
+        let block_writer = BlockWriter::new(source, BrokenWriter);
+
+        // Only a full device ends a wipe quietly. Every other error is a crash, which is how the
+        // user gets to know that the device couldn't be written.
+        block_writer.join();
+    }
+
     #[test]
     fn is_finished_returns_false_while_running() {
         // Create a source that keeps providing blocks

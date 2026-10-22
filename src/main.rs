@@ -6,7 +6,7 @@ use std::fmt::Write as FmtWrite;
 use std::fs::{File, OpenOptions};
 use std::io::{self, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod aligned_buffer;
 mod aligned_reader;
@@ -32,6 +32,9 @@ const NUM_SEED_WORKERS: usize = 1;
 
 /// A wipe writes this many bytes to the device at a time, and a verification reads this many
 const DIRECT_IO_SIZE: usize = 4 * 1024 * 1024;
+
+/// The display of what a wipe or a verification is doing gets updated this often
+const DISPLAY_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Output a random stream of bytes to a hard drive or partition to wipe it.
 /// This will continue wiping until the device runs out of space.
@@ -215,7 +218,7 @@ fn wipe(args: &Args) -> Result<()> {
     while !writer.is_finished() {
         monitor.display()?;
 
-        std::thread::sleep(Duration::from_secs(1));
+        wait_unless_finished(DISPLAY_INTERVAL, || writer.is_finished());
     }
 
     writer.join();
@@ -355,7 +358,7 @@ fn verify(args: &Args, seed: &Seed) -> Result<ExitCode> {
     while !verifier.is_finished() {
         monitor.display()?;
 
-        std::thread::sleep(Duration::from_secs(1));
+        wait_unless_finished(DISPLAY_INTERVAL, || verifier.is_finished());
     }
 
     let result = verifier.join()?;
@@ -401,6 +404,21 @@ fn open_for_verification(path: &str) -> io::Result<File> {
     }
 
     File::open(path)
+}
+
+/// Waits for `duration`, but not longer than it takes until `is_finished` returns true. So a run
+/// ends when its work is done, and not only when the display is updated the next time.
+fn wait_unless_finished(duration: Duration, is_finished: impl Fn() -> bool) {
+    const CHECK_INTERVAL: Duration = Duration::from_millis(10);
+
+    let start = Instant::now();
+    while !is_finished() {
+        let remaining = duration.saturating_sub(start.elapsed());
+        if remaining.is_zero() {
+            break;
+        }
+        std::thread::sleep(remaining.min(CHECK_INTERVAL));
+    }
 }
 
 fn block_size(args: &Args) -> Result<usize> {
@@ -922,6 +940,31 @@ mod tests {
         let path = std::env::temp_dir().join(format!("hddwiper-test-none-{}", std::process::id()));
         let err = open_for_verification(path.to_str().unwrap()).unwrap_err();
         assert_eq!(ErrorKind::NotFound, err.kind());
+    }
+
+    #[test]
+    fn test_wait_unless_finished_waits_for_the_duration() {
+        let start = Instant::now();
+
+        wait_unless_finished(Duration::from_millis(50), || false);
+
+        assert!(start.elapsed() >= Duration::from_millis(50));
+    }
+
+    #[test]
+    fn test_wait_unless_finished_ends_when_finished() {
+        // Finished from the beginning
+        let start = Instant::now();
+        wait_unless_finished(Duration::from_secs(1000), || true);
+        assert!(start.elapsed() < Duration::from_secs(100));
+
+        // Finished after a while
+        let start = Instant::now();
+        wait_unless_finished(Duration::from_secs(1000), || {
+            start.elapsed() >= Duration::from_millis(30)
+        });
+        assert!(start.elapsed() >= Duration::from_millis(30));
+        assert!(start.elapsed() < Duration::from_secs(100));
     }
 
     #[test]

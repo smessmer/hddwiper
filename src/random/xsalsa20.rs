@@ -126,6 +126,52 @@ mod tests {
         assert_ne!(lhs, rhs);
     }
 
+    fn read(mut rng: XSalsa20Rng) -> [u8; 1234] {
+        let mut data = [0; 1234];
+        rng.blocking_read(&mut data).unwrap();
+        data
+    }
+
+    fn seed(key: [u8; 32], nonce: [u8; 24]) -> GenericArray<u8, U56> {
+        let mut seed = GenericArray::default();
+        seed[..32].copy_from_slice(&key);
+        seed[32..].copy_from_slice(&nonce);
+        seed
+    }
+
+    #[test]
+    fn seed_consists_of_key_and_nonce() {
+        // from_key() is the same with a nonce of zeroes
+        assert_eq!(
+            read(XSalsa20Rng::from_key(&[42; 32])),
+            read(XSalsa20Rng::from_seed(seed([42; 32], [0; 24])))
+        );
+    }
+
+    #[test]
+    fn same_seed_generates_same_data() {
+        assert_eq!(
+            read(XSalsa20Rng::from_seed(seed([42; 32], [7; 24]))),
+            read(XSalsa20Rng::from_seed(seed([42; 32], [7; 24])))
+        );
+    }
+
+    #[test]
+    fn different_seeds_generate_different_data() {
+        let data = read(XSalsa20Rng::from_seed(seed([42; 32], [7; 24])));
+
+        // The key and the nonce both matter, up to their last byte
+        let mut other_key = [42; 32];
+        other_key[31] = 43;
+        assert_ne!(data, read(XSalsa20Rng::from_seed(seed(other_key, [7; 24]))));
+        let mut other_nonce = [7; 24];
+        other_nonce[23] = 8;
+        assert_ne!(
+            data,
+            read(XSalsa20Rng::from_seed(seed([42; 32], other_nonce)))
+        );
+    }
+
     #[test]
     fn seek_continues_stream_at_position() {
         let mut expected = [0; 1000];

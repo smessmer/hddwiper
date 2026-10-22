@@ -321,4 +321,129 @@ mod tests {
             assert_eq!(written.replace(" Written:", "Verified:"), verified);
         }
     }
+
+    #[test]
+    fn duration_is_formatted_as_hours_minutes_and_seconds() {
+        assert_eq!("00:00:00", format_duration(0.0));
+        assert_eq!("00:00:59", format_duration(59.9));
+        assert_eq!("00:01:00", format_duration(60.0));
+        assert_eq!("01:01:01", format_duration(3661.0));
+        // More than a day stays in hours
+        assert_eq!("100:00:00", format_duration(360_000.0));
+    }
+
+    #[test]
+    fn duration_that_isnt_known_is_formatted_as_dashes() {
+        assert_eq!("--:--:--", format_duration(f64::INFINITY));
+        assert_eq!("--:--:--", format_duration(f64::NAN));
+        assert_eq!("--:--:--", format_duration(-1.0));
+    }
+
+    #[test]
+    fn content_shows_progress_and_time_left() {
+        let progress = ProgressInfo {
+            device_size: 4 * 1024 * 1024 * 1024,
+            skip_bytes: 1024 * 1024 * 1024,
+        };
+        // 1 GiB was skipped and 1 GiB was written, so half of the device is done. The other
+        // 2 GiB take 2048 seconds with 1 MiB per second.
+        let content = format_display_content(
+            Some(&progress),
+            "Written:",
+            1024 * 1024 * 1024,
+            1.0,
+            Some(5),
+            10,
+        );
+
+        assert!(content.contains("50.0%"), "{content}");
+        assert!(content.contains("2.00 / 4.00 GB"), "{content}");
+        assert!(content.contains("00:34:08"), "{content}");
+    }
+
+    #[test]
+    fn content_shows_no_time_left_without_speed() {
+        let progress = ProgressInfo {
+            device_size: 4 * 1024 * 1024 * 1024,
+            skip_bytes: 0,
+        };
+        let content = format_display_content(Some(&progress), "Written:", 0, 0.0, Some(5), 10);
+
+        assert!(content.contains("0.0%"), "{content}");
+        assert!(content.contains("--:--:--"), "{content}");
+    }
+
+    #[test]
+    fn content_doesnt_show_more_than_all_of_the_device() {
+        // The device took more than its size, or its size is unknown
+        for device_size in [1024 * 1024 * 1024, 0] {
+            let progress = ProgressInfo {
+                device_size,
+                skip_bytes: 0,
+            };
+            let content = format_display_content(
+                Some(&progress),
+                "Written:",
+                2 * 1024 * 1024 * 1024,
+                100.0,
+                Some(5),
+                10,
+            );
+
+            assert!(content.contains("100.0%"), "{content}");
+            assert!(content.contains("00:00:00"), "{content}");
+        }
+    }
+
+    /// A buffer with a fixed number of blocks in it, for a [Monitor] to show
+    struct FakeBuffer(usize);
+
+    impl ProductReceiver<Vec<u8>> for FakeBuffer {
+        fn blocking_get_product(&self) -> Result<Vec<u8>> {
+            unimplemented!()
+        }
+
+        fn get_all_available_products(&self) -> Vec<Vec<u8>> {
+            unimplemented!()
+        }
+
+        fn num_products_in_buffer(&self) -> usize {
+            self.0
+        }
+    }
+
+    #[test]
+    fn display_asks_for_the_processed_bytes_each_time() {
+        let num_calls = std::cell::Cell::new(0);
+        let mut monitor = Monitor::new(
+            Some(FakeBuffer(5)),
+            FakeBuffer(10),
+            "Written:",
+            || {
+                num_calls.set(num_calls.get() + 1);
+                num_calls.get() * 1024 * 1024
+            },
+            Some(ProgressInfo {
+                device_size: 1024 * 1024 * 1024,
+                skip_bytes: 0,
+            }),
+        );
+
+        // What it prints goes to the terminal, so all we can see is that it works, also when
+        // it overwrites what it printed before
+        monitor.display().unwrap();
+        monitor.display().unwrap();
+        monitor.display().unwrap();
+
+        assert_eq!(3, num_calls.get());
+    }
+
+    #[test]
+    fn display_works_without_seed_buffer_and_progress() {
+        let seed_monitor: Option<FakeBuffer> = None;
+        let mut monitor = Monitor::new(seed_monitor, FakeBuffer(10), "Verified:", || 0, None);
+
+        monitor.display().unwrap();
+        monitor.display().unwrap();
+    }
 }

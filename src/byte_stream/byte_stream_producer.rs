@@ -51,6 +51,8 @@ mod tests {
     use super::*;
     use crate::byte_stream::testutils::FakeByteStream;
     use crate::producer::{Producer, ProductReceiver};
+    use anyhow::anyhow;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     const NUM_BLOCKS: usize = 20;
 
@@ -75,6 +77,92 @@ mod tests {
         (0..NUM_BLOCKS)
             .flat_map(|_| receiver.blocking_get_product().unwrap())
             .collect()
+    }
+
+    /// The first [NUM_BLOCKS] blocks of the stream with `seed`
+    fn stream_blocks(seed: u64, block_size: usize) -> Vec<Vec<u8>> {
+        let mut stream = FakeByteStream::new(seed);
+        (0..NUM_BLOCKS)
+            .map(|_| {
+                let mut block = vec![0; block_size];
+                stream.blocking_read(&mut block).unwrap();
+                block
+            })
+            .collect()
+    }
+
+    #[test]
+    fn blocks_have_block_size() {
+        let producer =
+            new_byte_stream_thread_pool_producer(1234, 5, 3, || Ok(FakeByteStream::new(0)))
+                .unwrap();
+        let receiver = producer.make_receiver();
+
+        for _ in 0..NUM_BLOCKS {
+            assert_eq!(1234, receiver.blocking_get_product().unwrap().len());
+        }
+    }
+
+    #[test]
+    fn blocks_of_one_worker_are_its_stream() {
+        for block_size in [1, 64, 100, 4096] {
+            let producer = new_byte_stream_thread_pool_producer(block_size, 5, 1, || {
+                Ok(FakeByteStream::new(0))
+            })
+            .unwrap();
+            let receiver = producer.make_receiver();
+
+            for (index, expected) in stream_blocks(0, block_size).into_iter().enumerate() {
+                assert!(
+                    expected == receiver.blocking_get_product().unwrap(),
+                    "Block {index} of size {block_size} isn't the next part of the stream"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn each_worker_reads_its_own_stream() {
+        const NUM_WORKERS: u64 = 4;
+        const BLOCK_SIZE: usize = 1000;
+
+        // Each worker gets a stream with another seed
+        let num_streams = AtomicU64::new(0);
+        let producer =
+            new_byte_stream_thread_pool_producer(BLOCK_SIZE, 5, NUM_WORKERS as usize, || {
+                Ok(FakeByteStream::new(
+                    num_streams.fetch_add(1, Ordering::SeqCst),
+                ))
+            })
+            .unwrap();
+        assert_eq!(NUM_WORKERS, num_streams.load(Ordering::SeqCst));
+        let receiver = producer.make_receiver();
+
+        // Each block has to be the next block of one of the streams. So no worker skips a part
+        // of its stream or uses it twice, although the blocks of all workers are mixed.
+        let streams: Vec<Vec<Vec<u8>>> = (0..NUM_WORKERS)
+            .map(|seed| stream_blocks(seed, BLOCK_SIZE))
+            .collect();
+        let mut num_blocks_taken = vec![0; streams.len()];
+        for index in 0..NUM_BLOCKS {
+            let block = receiver.blocking_get_product().unwrap();
+            let stream = (0..streams.len())
+                .find(|&stream| streams[stream].get(num_blocks_taken[stream]) == Some(&block))
+                .unwrap_or_else(|| panic!("Block {index} isn't the next block of any stream"));
+            num_blocks_taken[stream] += 1;
+        }
+    }
+
+    #[test]
+    fn fails_if_the_stream_cant_be_made() {
+        let result = new_byte_stream_thread_pool_producer(1000, 5, 3, || {
+            Err::<FakeByteStream, _>(anyhow!("Simulated failure"))
+        });
+
+        assert_eq!(
+            "Simulated failure",
+            result.map(|_| ()).unwrap_err().to_string()
+        );
     }
 
     #[test]
