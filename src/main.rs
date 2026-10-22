@@ -1,10 +1,10 @@
 #![feature(write_all_vectored)]
 
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use clap::Parser;
 use std::fmt::Write as FmtWrite;
 use std::fs::File;
-use std::io::{Seek, SeekFrom};
+use std::io::{self, ErrorKind, Seek, SeekFrom};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -169,6 +169,8 @@ fn wipe(args: &Args) -> Result<()> {
     let device_size = file.seek(SeekFrom::End(0))?;
 
     file.seek(SeekFrom::Start(skip_bytes))?;
+    // The writer takes the file, but we need it once more when the writer is done
+    let file_to_sync = file.try_clone()?;
     let writer = BlockWriter::new(random_producer.make_receiver(), file);
 
     // Only show progress when we know the device size (block devices).
@@ -198,11 +200,44 @@ fn wipe(args: &Args) -> Result<()> {
         std::thread::sleep(Duration::from_secs(1));
     }
 
-    println!("\nFinished.");
-
     writer.join();
 
+    println!("\nWaiting until all data is on the device...");
+    sync(&file_to_sync).context("Not all data could be written to the device")?;
+
+    println!("Finished.");
+
     Ok(())
+}
+
+/// Waits until all data that was written to `file` is on the device. Until then, the system can
+/// still be holding back data that it accepted from us, and it can fail to write that data
+/// without us ever knowing.
+fn sync(file: &File) -> io::Result<()> {
+    ignore_if_unsupported(file.sync_all())
+}
+
+/// Not everything can be synced. `/dev/null` can't, and on macOS some drives and file systems
+/// can't either. That is no reason to fail. We then just don't know more than without syncing,
+/// which is that the system accepted all the data.
+fn ignore_if_unsupported(sync_result: io::Result<()>) -> io::Result<()> {
+    match sync_result {
+        Err(err) if says_sync_is_unsupported(&err) => {
+            log::debug!("Not syncing, because the output file doesn't support it: {err}");
+            Ok(())
+        }
+        result => result,
+    }
+}
+
+/// Whether `err` says that the file can't be synced at all, and not that syncing it failed
+fn says_sync_is_unsupported(err: &io::Error) -> bool {
+    // This is what macOS answers, and there is no ErrorKind for it
+    #[cfg(unix)]
+    if err.raw_os_error() == Some(libc::ENOTTY) {
+        return true;
+    }
+    matches!(err.kind(), ErrorKind::InvalidInput | ErrorKind::Unsupported)
 }
 
 /// Checks whether the output file contains the data of a deterministic wipe with `seed`.
@@ -396,7 +431,7 @@ mod tests {
 
     use super::*;
     use crate::byte_stream::{SeekableByteStream, SyncByteStream};
-    use std::io::{self, Cursor, ErrorKind, Write};
+    use std::io::{Cursor, Write};
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -577,6 +612,76 @@ mod tests {
             assert_eq!(wipe_args.skip_bytes, verify_args.skip_bytes);
             assert_eq!(wipe_args.blocksize, verify_args.blocksize);
             assert_eq!(wipe_args.buffersize, verify_args.buffersize);
+        }
+    }
+
+    #[test]
+    fn test_sync() {
+        let path = std::env::temp_dir().join(format!("hddwiper-test-sync-{}", std::process::id()));
+        let mut file = File::create(&path).unwrap();
+        file.write_all(b"some data").unwrap();
+
+        let result = sync(&file);
+
+        std::fs::remove_file(&path).unwrap();
+        result.unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_sync_of_file_that_cant_be_synced() {
+        let file = File::create("/dev/null").unwrap();
+        // That is why sync() has to ignore it
+        assert_eq!(ErrorKind::InvalidInput, file.sync_all().unwrap_err().kind());
+
+        sync(&file).unwrap();
+    }
+
+    #[test]
+    fn test_ignore_if_unsupported() {
+        assert!(ignore_if_unsupported(Ok(())).is_ok());
+        assert!(ignore_if_unsupported(Err(ErrorKind::InvalidInput.into())).is_ok());
+        assert!(ignore_if_unsupported(Err(ErrorKind::Unsupported.into())).is_ok());
+
+        // Everything else means that data could be lost
+        let storage_full = ignore_if_unsupported(Err(ErrorKind::StorageFull.into()));
+        assert_eq!(ErrorKind::StorageFull, storage_full.unwrap_err().kind());
+        let failure = ignore_if_unsupported(Err(io::Error::other("Simulated failure")));
+        assert_eq!("Simulated failure", failure.unwrap_err().to_string());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ignore_if_unsupported_with_errors_of_the_system() {
+        // The ways in which systems say that a file can't be synced
+        for errno in [
+            libc::EINVAL,
+            libc::ENOSYS,
+            libc::ENOTSUP,
+            libc::EOPNOTSUPP,
+            libc::ENOTTY,
+        ] {
+            let err = io::Error::from_raw_os_error(errno);
+            assert!(
+                ignore_if_unsupported(Err(err)).is_ok(),
+                "Error {errno} isn't ignored"
+            );
+        }
+
+        // And some of the ways in which they say that data was lost
+        for errno in [
+            libc::EIO,
+            libc::ENOSPC,
+            libc::EDQUOT,
+            libc::EROFS,
+            libc::ENODEV,
+        ] {
+            let err = io::Error::from_raw_os_error(errno);
+            assert_eq!(
+                Some(errno),
+                ignore_if_unsupported(Err(err)).unwrap_err().raw_os_error(),
+                "Error {errno} is ignored"
+            );
         }
     }
 

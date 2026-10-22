@@ -185,6 +185,7 @@ dependencies = [
  "env_logger",
  "generic-array",
  "hex",
+ "libc",
  "log",
  "rand",
  "rdrand",
