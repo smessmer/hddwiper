@@ -1,5 +1,4 @@
-use anyhow::{ensure, Context, Result};
-use std::io::{self, ErrorKind, Read};
+use anyhow::{ensure, Result};
 use std::ops::{Deref, Range};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -7,6 +6,7 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 
+use crate::aligned_reader::AlignedReader;
 use crate::producer::ProductReceiver;
 
 /// Differences are located in units of this many bytes. A sector counts as differing as a whole
@@ -35,20 +35,20 @@ pub struct VerificationResult {
     pub first_mismatches: Vec<Range<u64>>,
 }
 
-/// Launches a thread that reads from a [Read], e.g. a [std::fs::File], and compares what it reads
-/// with the blocks from a [ProductReceiver].
+/// Launches a thread that compares the data of an [AlignedReader], which reads e.g. a
+/// [std::fs::File], with the blocks from a [ProductReceiver].
 pub struct BlockVerifier {
     join_handle: JoinHandle<Result<VerificationResult>>,
     num_bytes_verified: Arc<AtomicU64>,
 }
 
 impl BlockVerifier {
-    /// Launch a new thread that compares the content of `reader` with the blocks from `block_source`
-    /// until `reader` is at its end. `start_position` is the position that `reader` is at in the
-    /// beginning. It is only used to say where the differences are.
+    /// Launch a new thread that compares the data of `reader` with the blocks from `block_source`
+    /// until `reader` is at its end. `start_position` is the position that the data of `reader`
+    /// begins at. It is only used to say where the differences are.
     pub fn new<B: 'static + Deref<Target = [u8]>>(
         block_source: impl 'static + ProductReceiver<B> + Send,
-        reader: impl 'static + Read + Send,
+        reader: AlignedReader,
         start_position: u64,
     ) -> Self {
         let num_bytes_verified = Arc::new(AtomicU64::new(0));
@@ -81,47 +81,39 @@ impl BlockVerifier {
 
 fn _verify_blocks<B: Deref<Target = [u8]>>(
     block_source: impl ProductReceiver<B>,
-    mut reader: impl Read,
+    mut reader: AlignedReader,
     start_position: u64,
     num_bytes_verified: &AtomicU64,
 ) -> Result<VerificationResult> {
     let mut mismatches = Mismatches::new(start_position);
-    let mut actual = Vec::new();
-    loop {
-        log::debug!("Getting block...");
-        let expected = block_source.blocking_get_product()?;
-        // With an empty block, we couldn't tell if the reader is at its end
-        ensure!(!expected.is_empty(), "Can't verify with empty blocks");
-        actual.resize(expected.len(), 0);
-        log::debug!("Getting block...reading block...");
-        let num_read = _read_until_full_or_end(&mut reader, &mut actual).with_context(|| {
-            format!(
-                "Failed to read the data at position {}",
-                mismatches.position
-            )
-        })?;
-        mismatches.compare(&expected[..num_read], &actual[..num_read]);
-        num_bytes_verified.fetch_add(num_read as u64, Ordering::Relaxed);
-        log::debug!("Getting block...reading block...finished");
-        if num_read < expected.len() {
-            // The reader is at its end
-            return Ok(mismatches.into_result());
+    // The block that the data is compared with at the moment, and how much of it was compared
+    let mut expected: Option<B> = None;
+    let mut num_compared_of_expected = 0;
+    log::debug!("Reading data...");
+    while let Some(mut actual) = reader.next_data()? {
+        // The data doesn't come in the pieces that the blocks have, so it is compared in the
+        // pieces that both have in common
+        while !actual.is_empty() {
+            let expected = match &expected {
+                Some(block) if num_compared_of_expected < block.len() => block,
+                _ => {
+                    log::debug!("Reading data...getting block...");
+                    let block = block_source.blocking_get_product()?;
+                    // With nothing but empty blocks, we would never get to the end of the data
+                    ensure!(!block.is_empty(), "Can't verify with empty blocks");
+                    num_compared_of_expected = 0;
+                    expected.insert(block)
+                }
+            };
+            let len = actual.len().min(expected.len() - num_compared_of_expected);
+            mismatches.compare(&expected[num_compared_of_expected..][..len], &actual[..len]);
+            num_bytes_verified.fetch_add(len as u64, Ordering::Relaxed);
+            num_compared_of_expected += len;
+            actual = &actual[len..];
         }
+        log::debug!("Reading data...");
     }
-}
-
-/// Reads until `buffer` is full or `reader` is at its end. Returns the number of bytes read.
-fn _read_until_full_or_end(reader: &mut impl Read, buffer: &mut [u8]) -> io::Result<usize> {
-    let mut num_read = 0;
-    while num_read < buffer.len() {
-        match reader.read(&mut buffer[num_read..]) {
-            Ok(0) => break,
-            Ok(n) => num_read += n,
-            Err(err) if err.kind() == ErrorKind::Interrupted => {}
-            Err(err) => return Err(err),
-        }
-    }
-    Ok(num_read)
+    Ok(mismatches.into_result())
 }
 
 /// Collects the parts that differ, from data that is compared piece by piece
@@ -232,12 +224,16 @@ mod tests {
     #![allow(clippy::single_range_in_vec_init)]
 
     use super::*;
+    use crate::aligned_buffer::ALIGNMENT;
     use anyhow::anyhow;
     use std::collections::VecDeque;
-    use std::io::Cursor;
+    use std::io::{self, Cursor, Read, Seek, SeekFrom};
     use std::sync::Mutex;
 
     const BLOCK_SIZE: usize = 10_000;
+
+    /// The data is read in pieces of this size, which aren't the pieces that the blocks have
+    const READ_SIZE: usize = 2 * ALIGNMENT;
 
     /// A block source that hands out the given blocks and then fails
     struct FixedBlocks {
@@ -278,19 +274,35 @@ mod tests {
             .collect()
     }
 
+    /// A reader for `data` that reads `read_size` bytes at a time
+    fn reader_of(data: Vec<u8>, read_size: usize) -> AlignedReader {
+        AlignedReader::new(Cursor::new(data), 0, read_size, 2).unwrap()
+    }
+
     /// Verifies `actual` against `expected`. There have to be more expected bytes than actual
     /// ones, like in real life, where blocks get produced for as long as somebody takes them.
+    fn verify_with_sizes(
+        expected: &[u8],
+        actual: Vec<u8>,
+        start_position: u64,
+        block_size: usize,
+        read_size: usize,
+    ) -> VerificationResult {
+        assert!(expected.len() >= actual.len() + block_size);
+        let block_source = FixedBlocks::new(expected, block_size);
+        let reader = reader_of(actual, read_size);
+        BlockVerifier::new(block_source, reader, start_position)
+            .join()
+            .unwrap()
+    }
+
     fn verify_with_block_size(
         expected: &[u8],
         actual: Vec<u8>,
         start_position: u64,
         block_size: usize,
     ) -> VerificationResult {
-        assert!(expected.len() >= actual.len() + block_size);
-        let block_source = FixedBlocks::new(expected, block_size);
-        BlockVerifier::new(block_source, Cursor::new(actual), start_position)
-            .join()
-            .unwrap()
+        verify_with_sizes(expected, actual, start_position, block_size, READ_SIZE)
     }
 
     fn verify_at(expected: &[u8], actual: Vec<u8>, start_position: u64) -> VerificationResult {
@@ -416,11 +428,31 @@ mod tests {
         // The block sizes don't have to be multiples of the sector size
         let result = verify_with_block_size(&expected, actual.clone(), 1000, 1);
         assert_eq!(4, result.num_mismatches);
-        for block_size in [100, 4096, 5000, 10_000, 50_000] {
+        for block_size in [100, 4096, 5000, 8192, 10_000, 50_000] {
             assert_eq!(
                 result,
                 verify_with_block_size(&expected, actual.clone(), 1000, block_size),
                 "Different result with block size {block_size}"
+            );
+        }
+    }
+
+    #[test]
+    fn result_doesnt_depend_on_the_size_of_the_reads() {
+        let expected = test_data(100_000);
+        let mut actual = expected[..50_000].to_vec();
+        for position in [0, 4095, 9999, 10_000, 20_480, 33_333, 49_999] {
+            actual[position] ^= 1;
+        }
+
+        // Reads that are smaller than the blocks, as large as them, and larger than all the data
+        let result = verify_with_sizes(&expected, actual.clone(), 1000, 8192, ALIGNMENT);
+        assert_eq!(4, result.num_mismatches);
+        for read_size in [8192, 3 * ALIGNMENT, 16 * ALIGNMENT] {
+            assert_eq!(
+                result,
+                verify_with_sizes(&expected, actual.clone(), 1000, 8192, read_size),
+                "Different result with reads of {read_size} bytes"
             );
         }
     }
@@ -466,48 +498,6 @@ mod tests {
         assert_eq!(first_wrong_sectors, result.first_mismatches);
     }
 
-    /// A reader that only hands out a few bytes at a time and gets interrupted in between
-    struct ReluctantReader {
-        data: Cursor<Vec<u8>>,
-        num_reads: usize,
-    }
-
-    impl Read for ReluctantReader {
-        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-            self.num_reads += 1;
-            if self.num_reads % 3 == 0 {
-                return Err(io::Error::new(ErrorKind::Interrupted, "Interrupted"));
-            }
-            let len = buffer.len().min(1 + self.num_reads % 700);
-            self.data.read(&mut buffer[..len])
-        }
-    }
-
-    #[test]
-    fn reads_that_return_less_than_a_block_are_continued() {
-        let expected = test_data(100_000);
-        let mut actual = expected[..34_567].to_vec();
-        actual[10_000] ^= 1;
-        let reader = ReluctantReader {
-            data: Cursor::new(actual),
-            num_reads: 0,
-        };
-
-        let result = BlockVerifier::new(FixedBlocks::new(&expected, BLOCK_SIZE), reader, 0)
-            .join()
-            .unwrap();
-
-        assert_eq!(
-            VerificationResult {
-                num_bytes_verified: 34_567,
-                num_bytes_mismatched: SECTOR_SIZE,
-                num_mismatches: 1,
-                first_mismatches: vec![8192..12_288],
-            },
-            result
-        );
-    }
-
     /// A reader that fails once it handed out its data
     struct BrokenReader {
         data: Cursor<Vec<u8>>,
@@ -522,21 +512,32 @@ mod tests {
         }
     }
 
+    impl Seek for BrokenReader {
+        fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+            self.data.seek(position)
+        }
+    }
+
     #[test]
     fn fails_if_reading_fails() {
         let expected = test_data(100_000);
+        // Whole reads, so that it is a read of its own that fails
         let reader = BrokenReader {
-            data: Cursor::new(expected[..25_000].to_vec()),
+            data: Cursor::new(expected[..3 * READ_SIZE].to_vec()),
         };
+        let reader = AlignedReader::new(reader, 0, READ_SIZE, 2).unwrap();
 
-        let error = BlockVerifier::new(FixedBlocks::new(&expected, BLOCK_SIZE), reader, 1000)
+        let error = BlockVerifier::new(FixedBlocks::new(&expected, BLOCK_SIZE), reader, 0)
             .join()
             .unwrap_err();
 
-        // It says which block couldn't be read
+        // It says where the data couldn't be read
         assert_eq!(
-            "Failed to read the data at position 21000",
-            error.to_string()
+            format!(
+                "Failed to read the data at position {}: Simulated failure",
+                3 * READ_SIZE
+            ),
+            format!("{error:#}")
         );
     }
 
@@ -547,7 +548,7 @@ mod tests {
 
         let result = BlockVerifier::new(
             FixedBlocks::new(&expected, BLOCK_SIZE),
-            Cursor::new(actual),
+            reader_of(actual, READ_SIZE),
             0,
         )
         .join();
@@ -558,12 +559,17 @@ mod tests {
     #[test]
     fn fails_with_empty_blocks() {
         let block_source = FixedBlocks {
-            blocks: Mutex::new(VecDeque::from([vec![]])),
+            blocks: Mutex::new(VecDeque::from([vec![], vec![]])),
         };
 
-        let result = BlockVerifier::new(block_source, Cursor::new(vec![1, 2, 3]), 0).join();
+        let result =
+            BlockVerifier::new(block_source, reader_of(vec![1, 2, 3], READ_SIZE), 0).join();
 
-        assert!(result.is_err());
+        // And not only when it runs out of them
+        assert_eq!(
+            "Can't verify with empty blocks",
+            result.unwrap_err().to_string()
+        );
     }
 
     #[test]
@@ -573,7 +579,7 @@ mod tests {
 
         let verifier = BlockVerifier::new(
             FixedBlocks::new(&expected, BLOCK_SIZE),
-            Cursor::new(actual),
+            reader_of(actual, READ_SIZE),
             0,
         );
         while !verifier.is_finished() {
@@ -627,6 +633,7 @@ mod tests {
                 rng.gen_range(0..=50_000)
             };
             let block_size = rng.gen_range(1..=100_000);
+            let read_size = rng.gen_range(1..=30) * ALIGNMENT;
             let start_position = match rng.gen_range(0..3) {
                 0 => 0,
                 1 => rng.gen_range(0..3 * SECTOR_SIZE),
@@ -658,9 +665,9 @@ mod tests {
             }
             assert_eq!(
                 expected_result,
-                verify_with_block_size(&expected, actual, start_position, block_size),
-                "Case {case}: {len} bytes at position {start_position}, compared in blocks of \
-                 {block_size} bytes"
+                verify_with_sizes(&expected, actual, start_position, block_size, read_size),
+                "Case {case}: {len} bytes at position {start_position}, read {read_size} bytes \
+                 at a time and compared in blocks of {block_size} bytes"
             );
         }
         // Otherwise this wouldn't test what it is meant to
