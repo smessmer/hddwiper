@@ -737,6 +737,16 @@ mod tests {
         assert!(content[4321..] == read_content);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn test_open_for_verification_without_direct_reads() {
+        // On Linux, /dev/null can't be opened for direct reads. It has to be opened anyway.
+        let mut file = open_for_verification("/dev/null").unwrap();
+        let mut content = vec![];
+        file.read_to_end(&mut content).unwrap();
+        assert!(content.is_empty());
+    }
+
     #[test]
     fn test_open_for_verification_fails_for_missing_file() {
         let path = std::env::temp_dir().join(format!("hddwiper-test-none-{}", std::process::id()));
