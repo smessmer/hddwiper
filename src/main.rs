@@ -32,9 +32,16 @@ const SEED_GENERATOR_BLOCK_SIZE: usize = 256;
 const NUM_SEED_BUFFER_BLOCKS: usize = 256;
 const NUM_SEED_WORKERS: usize = 1;
 
-/// A verification reads this many bytes from the device at a time. A wipe writes its blocks one
-/// at a time, but collects blocks that are smaller than this to writes of this many bytes.
-const DIRECT_IO_SIZE: usize = 4 * 1024 * 1024;
+/// A wipe writes its blocks one at a time, but collects blocks that are smaller than this to
+/// writes of this many bytes
+const MIN_WRITE_SIZE: usize = 4 * 1024 * 1024;
+
+/// A verification reads this many bytes from the device at a time
+const READ_SIZE: usize = 16 * 1024 * 1024;
+
+/// A verification has this many buffers of [READ_SIZE] bytes. While it compares the data in one
+/// of them, it already reads the data that follows into the others.
+const NUM_READ_BUFFERS: usize = 3;
 
 /// The display of what a wipe or a verification is doing gets updated this often
 const DISPLAY_INTERVAL: Duration = Duration::from_secs(1);
@@ -199,7 +206,7 @@ fn wipe(args: &Args) -> Result<()> {
         file,
         skip_bytes,
         block_size,
-        DIRECT_IO_SIZE,
+        MIN_WRITE_SIZE,
     )?;
 
     // Only show progress when we know the device size (block devices).
@@ -403,7 +410,7 @@ fn verify(args: &Args, seed: &Seed) -> Result<ExitCode> {
          which is {device_size} bytes",
         args.output_file
     );
-    let reader = AlignedReader::new(file, skip_bytes, DIRECT_IO_SIZE)?;
+    let reader = AlignedReader::new(file, skip_bytes, READ_SIZE, NUM_READ_BUFFERS)?;
 
     let random_producer = deterministic_block_producer(
         seed,
@@ -1035,7 +1042,7 @@ mod tests {
             file,
             0,
             1000,
-            DIRECT_IO_SIZE,
+            MIN_WRITE_SIZE,
         )
         .unwrap();
 
@@ -1063,18 +1070,18 @@ mod tests {
 
     #[test]
     fn test_open_for_verification() {
-        let content: Vec<u8> = (0..300_000).map(|i| (i % 251) as u8).collect();
-        let path = std::env::temp_dir().join(format!("hddwiper-test-open-{}", std::process::id()));
-        std::fs::write(&path, &content).unwrap();
+        let temp_file = TempFile::new("open-for-verification");
+        let content = test_data(300_000);
+        std::fs::write(temp_file.path(), &content).unwrap();
 
         // Where the file is opened for direct reads, this only works if the reads are aligned
-        let file = open_for_verification(path.to_str().unwrap()).unwrap();
-        let mut reader = AlignedReader::new(file, 4321, 16 * aligned_buffer::ALIGNMENT).unwrap();
+        let file = open_for_verification(temp_file.path()).unwrap();
+        let mut reader = AlignedReader::new(file, 4321, 16 * aligned_buffer::ALIGNMENT, 2).unwrap();
         let mut read_content = vec![];
-        let result = reader.read_to_end(&mut read_content);
+        while let Some(data) = reader.next_data().unwrap() {
+            read_content.extend_from_slice(data);
+        }
 
-        std::fs::remove_file(&path).unwrap();
-        result.unwrap();
         assert!(content[4321..] == read_content);
     }
 
@@ -1159,7 +1166,7 @@ mod tests {
 
         // Otherwise the blocks would be copied on their way to the device
         assert_eq!(0, block_size % aligned_buffer::ALIGNMENT);
-        assert!(block_size >= DIRECT_IO_SIZE);
+        assert!(block_size >= MIN_WRITE_SIZE);
     }
 
     #[test]
@@ -1409,10 +1416,13 @@ mod tests {
         num_workers: usize,
         skip_bytes: u64,
     ) -> VerificationResult {
+        // The devices are small, so that only small reads make it many reads
+        const READ_SIZE: usize = 2 * aligned_buffer::ALIGNMENT;
+
         let producer =
             deterministic_block_producer(seed, block_size, 3, num_workers, skip_bytes).unwrap();
-        let mut reader = Cursor::new(device.content());
-        reader.set_position(skip_bytes);
+        let reader =
+            AlignedReader::new(Cursor::new(device.content()), skip_bytes, READ_SIZE, 2).unwrap();
         BlockVerifier::new(producer.make_receiver(), reader, skip_bytes)
             .join()
             .unwrap()

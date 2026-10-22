@@ -12,6 +12,7 @@
 * Fail if a device takes no more data before its end is reached
 * On macOS, still wait until the system wrote all data if the drive can't be told to write out its cache
 * Write blocks to the device from the memory they were generated in instead of copying them first, which makes wipes of very fast SSDs faster. For this, --blocksize is rounded up to a multiple of 4096 bytes
+* --verify reads the device in a thread of its own and compares the data without copying it first, which makes it more than twice as fast on fast SSDs
 
 2.0.0
 ----------
