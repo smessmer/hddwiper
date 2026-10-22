@@ -291,7 +291,50 @@ fn ensure_wipe_reached_end(path: &str, end_position: u64, device_size: u64) -> R
 /// still be holding back data that it accepted from us, and it can fail to write that data
 /// without us ever knowing.
 fn sync(file: &File) -> io::Result<()> {
-    ignore_if_unsupported(file.sync_all())
+    let result = file.sync_all();
+
+    // On macOS, sync_all() also makes the drive write out its own cache, and some drives and
+    // file systems can't do that. Then we at least wait until the system wrote everything.
+    #[cfg(target_vendor = "apple")]
+    let result = or_if_unsupported(result, || sync_without_drive_cache(file));
+
+    ignore_if_unsupported(result)
+}
+
+/// Returns `sync_result`, unless it says that the file can't be synced. Then this tries
+/// `other_sync` and returns its result.
+#[cfg(any(target_vendor = "apple", test))]
+fn or_if_unsupported(
+    sync_result: io::Result<()>,
+    other_sync: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
+    match sync_result {
+        Err(err) if says_sync_is_unsupported(&err) => {
+            log::debug!(
+                "Syncing in another way, because the output file doesn't support it: {err}"
+            );
+            other_sync()
+        }
+        result => result,
+    }
+}
+
+/// Waits until the system wrote all data of `file` to its drive. Other than [File::sync_all]
+/// on macOS, this doesn't make the drive write out its own cache.
+#[cfg(any(target_vendor = "apple", all(unix, test)))]
+fn sync_without_drive_cache(file: &File) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    loop {
+        // SAFETY: fsync only needs a file descriptor that is open, and `file` keeps it open
+        if unsafe { libc::fsync(file.as_raw_fd()) } == 0 {
+            return Ok(());
+        }
+        let err = io::Error::last_os_error();
+        if err.kind() != ErrorKind::Interrupted {
+            return Err(err);
+        }
+    }
 }
 
 /// Not everything can be synced. `/dev/null` can't, and on macOS some drives and file systems
@@ -755,6 +798,75 @@ mod tests {
         assert_eq!(ErrorKind::InvalidInput, file.sync_all().unwrap_err().kind());
 
         sync(&file).unwrap();
+    }
+
+    #[test]
+    fn test_or_if_unsupported() {
+        let unreachable = || -> io::Result<()> { panic!("The other sync must not be tried") };
+
+        // A sync that worked or failed is the result
+        assert!(or_if_unsupported(Ok(()), unreachable).is_ok());
+        let storage_full = or_if_unsupported(Err(ErrorKind::StorageFull.into()), unreachable);
+        assert_eq!(ErrorKind::StorageFull, storage_full.unwrap_err().kind());
+        let failure = or_if_unsupported(Err(io::Error::other("Simulated failure")), unreachable);
+        assert_eq!("Simulated failure", failure.unwrap_err().to_string());
+
+        // A sync that isn't supported is replaced by the other one, whatever that one returns
+        for unsupported in [ErrorKind::InvalidInput, ErrorKind::Unsupported] {
+            assert!(or_if_unsupported(Err(unsupported.into()), || Ok(())).is_ok());
+            let failure = or_if_unsupported(Err(unsupported.into()), || {
+                Err(io::Error::other("Simulated failure"))
+            });
+            assert_eq!("Simulated failure", failure.unwrap_err().to_string());
+            // Also if the other one isn't supported either. What to do then isn't decided here.
+            let still_unsupported = or_if_unsupported(Err(unsupported.into()), || {
+                Err(ErrorKind::Unsupported.into())
+            });
+            assert_eq!(
+                ErrorKind::Unsupported,
+                still_unsupported.unwrap_err().kind()
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_or_if_unsupported_with_the_error_of_macos() {
+        // What macOS says when a drive or a file system can't do its kind of sync
+        let unsupported = || Err(io::Error::from_raw_os_error(libc::ENOTTY));
+
+        assert!(or_if_unsupported(unsupported(), || Ok(())).is_ok());
+        let failure = or_if_unsupported(unsupported(), || {
+            Err(io::Error::from_raw_os_error(libc::EIO))
+        });
+        assert_eq!(Some(libc::EIO), failure.unwrap_err().raw_os_error());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_sync_without_drive_cache() {
+        let path = std::env::temp_dir().join(format!(
+            "hddwiper-test-sync-without-drive-cache-{}",
+            std::process::id()
+        ));
+        let mut file = File::create(&path).unwrap();
+        file.write_all(b"some data").unwrap();
+
+        let result = sync_without_drive_cache(&file);
+
+        std::fs::remove_file(&path).unwrap();
+        result.unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_sync_without_drive_cache_of_file_that_cant_be_synced() {
+        let file = File::create("/dev/null").unwrap();
+
+        // It returns the error of the system, which sync() then ignores
+        let err = sync_without_drive_cache(&file).unwrap_err();
+        assert_eq!(ErrorKind::InvalidInput, err.kind());
+        assert!(ignore_if_unsupported(Err(err)).is_ok());
     }
 
     #[test]
