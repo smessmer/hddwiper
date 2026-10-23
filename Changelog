@@ -1,4 +1,4 @@
-2.1.0 (unreleased)
+2.1.0
 ----------
 * Fix infinite loop when using --blocksize larger than 1GB (https://github.com/smessmer/hddwiper/pull/4)
 * Fix output artefacts, and show the status on several lines, aligned and in color (https://github.com/smessmer/hddwiper/pull/8)
